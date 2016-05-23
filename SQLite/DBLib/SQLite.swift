@@ -8,28 +8,19 @@
 
 import Foundation
 
-// MARK: 空数据样式
-let DBNull = DataBaseNull()
 
-public struct DataBaseNull: CustomStringConvertible {
-    public var description:String { return "Null" }
-}
-// MARK: - protocols 接口(创建数据表需实现以下接口)
-public protocol DBTableType {
-    associatedtype Column: DBTableColumn, RawRepresentable
+
+// MARK: - protocols 接口(创建数据表需用枚举实现以下接口) 
+/// 注: enum OneTable: String, DBTableType
+public protocol DBTableType: RawRepresentable, Hashable {
+    static var table_name:String { get }
     
-    static var name:String { get }
-}
-
-public protocol DBTableColumn: Enumerable {
     var type: DataBaseColumnType { get }
     var option: DataBaseColumnOptions { get }
     
     // optional
     var defaultValue:CustomStringConvertible? { get }
 }
-
-
 
 // MARK: - enum 枚举(数据库只读模式等)
 public enum DBOpenMode: Int {
@@ -38,57 +29,564 @@ public enum DBOpenMode: Int {
 }
 
 // MARK: - SQLite
-struct SQLite {
-    static func open(mode:DBOpenMode) -> DBHandle {
-        return DBHandle()
-    }
-}
 
 // MARK: - 数据库操作句柄
-class DBHandle {
+
+// MARK: - 空与非空对象
+public protocol DBNullType: CustomStringConvertible {}
+public struct DataBaseNull: DBNullType {
+    public var description:String { return "NULL" }
+}
+public struct DataBaseNotNull: DBNullType {
+    public var description:String { return "NOT NULL" }
+}
+
+// MARK: - 过滤 Any 类型中的字符串 与 nil
+private func filterSQLAny<T>(rhs:T?) -> String {
+    guard let v = rhs else { return "Null" }
+    switch v {
+    case _ as NSNull:           return "Null"
+    case _ as DataBaseNull:     return "Null"
+    case let value as String:   return "'\(value)'"
+    case let value as NSDate:   return "\(value.timeIntervalSince1970)"
+    default:                    //return "\(v)"
+        let mirror = _reflect(v)
+        if mirror.disposition == .Optional {
+            if mirror.count == 0 { return "Null" }
+            return filterSQLAny(mirror[0].1.value)
+        }
+        return "\(v)"
+    }
+}
+// MARK: - 条件泛型传递
+public class DBCondition<T1:DBTableType, T2:DBTableType>: CustomStringConvertible {
+    public let description: String
+    init(_ column1:T1, _ condition:String, _ column2:T2) {
+        description = "\(T1.table_name).\(column1)\(condition)\(T2.table_name).\(column2)"
+    }
+    init(_ column:T1, _ condition:String) {
+        description = T1.self == T2.self ? "\(column)\(condition)" : "\(T1.table_name).\(column)\(condition)"
+    }
+    init(_ lhs:DBCondition<T1,T2>, _ condition:String) {
+        description = "\(lhs)\(condition)"
+    }
+}
+// MARK: - 扩展条件运算符
+/// SQL 中的不等于
+infix operator <> {
+    associativity none
+    precedence 130
+}
+public func <> <T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<T,T> {
+    let text = filterSQLAny(rhs)
+    if text == "Null" { return DBCondition<T,T>(lhs, " IS NOT NULL") }
+    return DBCondition<T,T>(lhs, "<>\(text)")
+}
+public func == <T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<T,T> {
+    let text = filterSQLAny(rhs)
+    if text == "Null" { return DBCondition<T,T>(lhs, " IS NULL") }
+    return DBCondition<T,T>(lhs, "=\(text)")
+}
+public func != <T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<T,T> {
+    return lhs <> rhs
+}
+public func <  <T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<T,T> {
+    return DBCondition<T,T>(lhs, "<\(filterSQLAny(rhs))")
+}
+public func >  <T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<T,T> {
+    return DBCondition<T,T>(lhs, ">\(filterSQLAny(rhs))")
+}
+public func <= <T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<T,T> {
+    return DBCondition<T,T>(lhs, "<=\(filterSQLAny(rhs))")
+}
+public func >= <T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<T,T> {
+    return DBCondition<T,T>(lhs, ">=\(filterSQLAny(rhs))")
+}
+public func +  <T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<T,T> {
+    return DBCondition<T,T>(lhs, "+\(filterSQLAny(rhs))")
+}
+public func -  <T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<T,T> {
+    return DBCondition<T,T>(lhs, "-\(filterSQLAny(rhs))")
+}
+public func *  <T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<T,T> {
+    return DBCondition<T,T>(lhs, "*\(filterSQLAny(rhs))")
+}
+public func /  <T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<T,T> {
+    return DBCondition<T,T>(lhs, "/\(filterSQLAny(rhs))")
+}
+public func &  <T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<T,T> {
+    return DBCondition<T,T>(lhs, "&\(filterSQLAny(rhs))")
+}
+public func |  <T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<T,T> {
+    return DBCondition<T,T>(lhs, "|\(filterSQLAny(rhs))")
+}
+public func ^  <T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<T,T> {
+    return DBCondition<T,T>(lhs, "^\(filterSQLAny(rhs))")
+}
+
+// MARK: 2字段条件扩展运算符
+public func <> <T1:DBTableType,T2:DBTableType>(lhs: T1, rhs: T2) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "<>", rhs)
+}
+public func == <T1:DBTableType,T2:DBTableType>(lhs: T1, rhs: T2) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "=", rhs)
+}
+public func != <T1:DBTableType,T2:DBTableType>(lhs: T1, rhs: T2) -> DBCondition<T1,T2> {
+    return lhs <> rhs
+}
+public func <  <T1:DBTableType,T2:DBTableType>(lhs: T1, rhs: T2) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "<", rhs)
+}
+public func >  <T1:DBTableType,T2:DBTableType>(lhs: T1, rhs: T2) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, ">", rhs)
+}
+public func <= <T1:DBTableType,T2:DBTableType>(lhs: T1, rhs: T2) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "<=", rhs)
+}
+public func >= <T1:DBTableType,T2:DBTableType>(lhs: T1, rhs: T2) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, ">=", rhs)
+}
+public func +  <T1:DBTableType,T2:DBTableType>(lhs: T1, rhs: T2) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "+", rhs)
+}
+public func -  <T1:DBTableType,T2:DBTableType>(lhs: T1, rhs: T2) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "-", rhs)
+}
+public func *  <T1:DBTableType,T2:DBTableType>(lhs: T1, rhs: T2) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "*", rhs)
+}
+public func /  <T1:DBTableType,T2:DBTableType>(lhs: T1, rhs: T2) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "/", rhs)
+}
+public func &  <T1:DBTableType,T2:DBTableType>(lhs: T1, rhs: T2) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "&", rhs)
+}
+public func |  <T1:DBTableType,T2:DBTableType>(lhs: T1, rhs: T2) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "|", rhs)
+}
+public func ^  <T1:DBTableType,T2:DBTableType>(lhs: T1, rhs: T2) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "^", rhs)
+}
+
+
+// MARK: 以下是 条件无限追加的函数
+public func <> <T1:DBTableType,T2:DBTableType>(lhs: DBCondition<T1,T2>, rhs: Any) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "<>\(filterSQLAny(rhs))")
+}
+public func == <T1:DBTableType,T2:DBTableType>(lhs: DBCondition<T1,T2>, rhs: Any) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "=\(filterSQLAny(rhs))")
+}
+public func != <T1:DBTableType,T2:DBTableType>(lhs: DBCondition<T1,T2>, rhs: Any) -> DBCondition<T1,T2> {
+    return lhs <> rhs
+}
+public func <  <T1:DBTableType,T2:DBTableType>(lhs: DBCondition<T1,T2>, rhs: Any) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "<\(filterSQLAny(rhs))")
+}
+public func >  <T1:DBTableType,T2:DBTableType>(lhs: DBCondition<T1,T2>, rhs: Any) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, ">\(filterSQLAny(rhs))")
+}
+public func <= <T1:DBTableType,T2:DBTableType>(lhs: DBCondition<T1,T2>, rhs: Any) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "<=\(filterSQLAny(rhs))")
+}
+public func >= <T1:DBTableType,T2:DBTableType>(lhs: DBCondition<T1,T2>, rhs: Any) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, ">=\(filterSQLAny(rhs))")
+}
+public func +  <T1:DBTableType,T2:DBTableType>(lhs: DBCondition<T1,T2>, rhs: Any) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "+\(filterSQLAny(rhs))")
+}
+public func -  <T1:DBTableType,T2:DBTableType>(lhs: DBCondition<T1,T2>, rhs: Any) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "-\(filterSQLAny(rhs))")
+}
+public func *  <T1:DBTableType,T2:DBTableType>(lhs: DBCondition<T1,T2>, rhs: Any) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "*\(filterSQLAny(rhs))")
+}
+public func /  <T1:DBTableType,T2:DBTableType>(lhs: DBCondition<T1,T2>, rhs: Any) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "/\(filterSQLAny(rhs))")
+}
+public func &  <T1:DBTableType,T2:DBTableType>(lhs: DBCondition<T1,T2>, rhs: Any) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "&\(filterSQLAny(rhs))")
+}
+public func |  <T1:DBTableType,T2:DBTableType>(lhs: DBCondition<T1,T2>, rhs: Any) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "|\(filterSQLAny(rhs))")
+}
+public func ^  <T1:DBTableType,T2:DBTableType>(lhs: DBCondition<T1,T2>, rhs: Any) -> DBCondition<T1,T2> {
+    return DBCondition<T1,T2>(lhs, "^\(filterSQLAny(rhs))")
+}
+
+// MARK: - SQL构造器
+public class DBSQLHandle {
+    private var sql: [String] = []
+    private func addCondition(condition:String, funcName:String = #function) {
+        sql.append(funcName)
+        sql.append(condition)
+    }
+}
+private protocol DBSQLHandleType {
+    var _handle:DBSQLHandle { get set }
+    init(_ handle:DBSQLHandle?)
+}
+
+public class SQLBase: DBSQLHandleType, CustomStringConvertible {
     
-    // MARK: 创建SQL句柄 用于构建链式 SQL
-    func createSQLHandleWithTable<T:DBTableType>(_: T.Type) -> SQLHandle<T> {
-        let handle:COpaquePointer = nil
-        return SQLHandle<T>(SQLHandleBase(handle))
+    private var _handle:DBSQLHandle
+    public required init(_ handle:DBSQLHandle? = nil) {
+        _handle = handle ?? DBSQLHandle()
     }
-    func createSQLHandleWithTables<T1:DBTableType,T2:DBTableType>(_: T1.Type, _: T2.Type) -> SQLHandle2<T1,T2> {
-        let handle:COpaquePointer = nil
-        return SQLHandle2<T1,T2>(SQLHandleBase(handle))
+    private init(_ base:String) {
+        _handle = DBSQLHandle()
+        _handle.sql.append(base)
     }
-//    func createSQLHandleWithTables<T1:DBTableType,T2:DBTableType,T3:DBTableType>(_: T1.Type, _: T2.Type, _: T3.Type) -> SQLHandle3<T1,T2,T3> {
-//        let handle:COpaquePointer = nil
-//        return SQLHandle3<T1,T2,T3>(handle)
-//    }
-//    func createSQLHandleWithTables<T1:DBTableType,T2:DBTableType,T3:DBTableType,T4:DBTableType>(_: T1.Type, _: T2.Type, _: T3.Type, _: T4.Type) -> SQLHandle4<T1,T2,T3,T4> {
-//        let handle:COpaquePointer = nil
-//        return SQLHandle4<T1,T2,T3,T4>(handle)
-//    }
-/*
-    func createSQLwithTable<T1:DBTableType,T2:DBTableType,T3:DBTableType,T4:DBTableType,T5:DBTableType>(_: T1.Type, _: T2.Type, _: T3.Type, _: T4.Type, _: T5.Type) -> SQLHandle5<T1,T2,T3,T4,T5> {
-        let handle:COpaquePointer = nil
-        return SQLHandle5<T1,T2,T3,T4,T5>(handle)
+    
+    func INTO<Table:DBTableType>(_:Table.Type) -> SQLInsert<Table> {
+        _handle.addCondition(Table.table_name)
+        return SQLInsert<Table>(_handle)
     }
-*/
+    
+    func TABLE<Table:DBTableType>(_:Table.Type) -> SQL<Table> {
+        _handle.addCondition(Table.table_name)
+        return SQL<Table>(_handle)
+    }
+    
+    func FROM<Table:DBTableType>(_:Table.Type) -> SQL<Table> {
+        _handle.addCondition(Table.table_name)
+        return SQL<Table>(_handle)
+    }
+    
+    func FROM<T1:DBTableType, T2:DBTableType>(_:T1.Type,_:T2.Type) -> SQL2<T1,T2> {
+        _handle.sql.append("FROM \(T1.table_name), \(T2.table_name)")
+        return SQL2<T1,T2>(_handle)
+    }
+    
+    func COUNT(@noescape columns:(SQLBase,SQLBase)->SQLBase) -> SQLBase {
+        _handle.sql.append("COUNT(")
+        return columns(self, SQLBase(")"))
+    }
+    
+    public var OR:SQLBase {
+        _handle.sql.append("OR")
+        return self
+    }
+    public var REPLACE:SQLBase {
+        _handle.sql.append("REPLACE")
+        return self
+    }
+    public var IGNORE:SQLBase {
+        _handle.sql.append("REPLACE")
+        return self
+    }
+    func IN(sql:SQLBase) -> Self {
+        _handle.sql.append("IN(\(sql))")
+        return self
+    }
+    
+    func IN(params:Any...) -> Self {
+        let text = params.map({ filterSQLAny($0) }).joinWithSeparator(", ")
+        _handle.sql.append("IN(\(text))")
+        return self
+    }
+    
+    public var description: String {
+        return _handle.sql.joinWithSeparator(" ")
+    }
 }
 
 
 
+public class SQL<T:DBTableType>:SQLBase {
+    public typealias Table = T
+    
+    public required init(_ handle:DBSQLHandle? = nil) { super.init(handle) }
+    
+    func SELECT(columns:T...) -> Self {
+        _handle.sql.append("SELECT " + columns.map({ "\($0)" }).joinWithSeparator(", "))
+        return self
+    }
+    func SELECT(DISTINCT columns:T...) -> Self {
+        _handle.sql.append("SELECT DISTINCT " + columns.map({ "\($0)" }).joinWithSeparator(", "))
+        return self
+    }
+    
+    var SELECT:SQL {
+        _handle.sql.append("SELECT")
+        return self
+    }
+    
+    
+    func COUNT(columns:T...) -> Self {
+        _handle.sql.append("COUNT(" + columns.map({ "\($0)" }).joinWithSeparator(", ") + ")")
+        return self
+    }
+    func SELECT(TOP value:Int, columns:T...) -> Self {
+        _handle.sql.append("SELECT TOP \(value) " + columns.map({ "\($0)" }).joinWithSeparator(", "))
+        return self
+    }
+    func WHERE(column:T) -> Self {
+        _handle.addCondition("\(column)")
+        return self
+    }
+    func WHERE(@autoclosure condition:() -> DBCondition<T,T>) -> Self {
+        _handle.addCondition(condition().description)
+        return self
+    }
+    public func ORDER(BY columns:T...) -> Self {
+        _handle.sql.append("ORDER BY " + columns.map({ "\($0)" }).joinWithSeparator(", "))
+        return self
+    }
+    public func GROUP(BY columns:T...) -> Self {
+        _handle.sql.append("GROUP BY " + columns.map({ "\($0)" }).joinWithSeparator(", "))
+        return self
+    }
+    public func LIMIT(value:Int) -> Self {
+        _handle.addCondition("\(value)")
+        return self
+    }
+    public func LIKE(pattern:String) -> Self {
+        _handle.addCondition("'\(pattern)'")
+        return self
+    }
+    public func BETWEEN(value1:Any, AND value2:Any) -> Self {
+        _handle.sql.append("BETWEEN")
+        _handle.sql.append(filterSQLAny(value1))
+        _handle.sql.append("AND")
+        _handle.sql.append(filterSQLAny(value2))
+        return self
+    }
+    
+    public func IS<N:DBNullType>(nullValue:N) -> Self {
+        _handle.addCondition(nullValue.description)
+        return self
+    }
+    public func AND(column:T) -> Self {
+        _handle.addCondition("\(column)")
+        return self
+    }
+    public func AND(@autoclosure condition:() -> DBCondition<T,T>) -> Self {
+        _handle.addCondition(condition().description)
+        return self
+    }
+    public func OR(column:T) -> Self {
+        _handle.addCondition("\(column)")
+        return self
+    }
+    public func OR(@autoclosure condition:() -> DBCondition<T,T>) -> Self {
+        _handle.addCondition(condition().description)
+        return self
+    }
+    public func XOR(column:T) -> Self {
+        _handle.addCondition("\(column)")
+        return self
+    }
+    public func XOR(@autoclosure condition:() -> DBCondition<T,T>) -> Self {
+        _handle.addCondition(condition().description)
+        return self
+    }
+    
+    func SET(@autoclosure   condition1:() -> DBCondition<T,T>,
+             @autoclosure _ condition2:() -> DBCondition<T,T>) -> Self {
+        _handle.addCondition([
+            condition1().description,
+            condition2().description
+            ].joinWithSeparator(", "))
+        return self
+    }
+    func SET(@autoclosure   condition1:() -> DBCondition<T,T>,
+             @autoclosure _ condition2:() -> DBCondition<T,T>,
+             @autoclosure _ condition3:() -> DBCondition<T,T>) -> Self {
+        _handle.addCondition([
+            condition1().description,
+            condition2().description,
+            condition3().description
+            ].joinWithSeparator(", "))
+        return self
+    }
+    func SET(@autoclosure   condition1:() -> DBCondition<T,T>,
+             @autoclosure _ condition2:() -> DBCondition<T,T>,
+             @autoclosure _ condition3:() -> DBCondition<T,T>,
+             @autoclosure _ condition4:() -> DBCondition<T,T>) -> Self {
+        _handle.addCondition([
+            condition1().description,
+            condition2().description,
+            condition3().description,
+            condition4().description
+            ].joinWithSeparator(", "))
+        return self
+    }
+    func SET(@autoclosure   condition1:() -> DBCondition<T,T>,
+             @autoclosure _ condition2:() -> DBCondition<T,T>,
+             @autoclosure _ condition3:() -> DBCondition<T,T>,
+             @autoclosure _ condition4:() -> DBCondition<T,T>,
+             @autoclosure _ condition5:() -> DBCondition<T,T>) -> Self {
+        _handle.addCondition([
+            condition1().description,
+            condition2().description,
+            condition3().description,
+            condition4().description,
+            condition5().description
+            ].joinWithSeparator(", "))
+        return self
+    }
+    override func IN(sql: SQLBase) -> Self {
+        super.IN(sql)
+        return self
+    }
+    
+    override func IN(params: Any...) -> Self {
+        super.IN(params)
+        return self
+    }
+}
+
+public class SQLInsert<T:DBTableType>: DBSQLHandleType {
+    private var _handle:DBSQLHandle
+    private var columns:[T] = []
+    public required init(_ handle:DBSQLHandle?) {
+        _handle = handle ?? DBSQLHandle()
+    }
+    
+    subscript(columns:T...) -> SQLInsert<T> {
+        let text = columns.map({ "\($0)" }).joinWithSeparator(", ")
+        _handle.sql.append("(\(text))")
+        self.columns = columns
+        return self
+    }
+    
+    func VALUES(params:Any...) -> SQL<T> {
+        let text = params.map({ filterSQLAny($0) }).joinWithSeparator(", ")
+        _handle.sql.append("VALUES(\(text))")
+        return SQL<T>(_handle)
+    }
+    
+    func VALUES<U>(values:[U], insertTo db:String, binds:(U)->()) {
+        // TODO: 批量插入
+    }
+    
+}
+
+public class SQL2<T1:DBTableType,T2:DBTableType>:SQL<T1> {
+    
+    public required init(_ handle:DBSQLHandle? = nil) { super.init(handle) }
+    
+    func SELECT(columns1:[T1],_ columns2:[T2]) -> Self {
+        var text = columns1.reduce("SELECT ") { $0 + "\(T1.table_name).\($1), " }
+        text += columns2.map({ "\(T2.table_name).\($0)" }).joinWithSeparator(", ")
+        _handle.sql.append(text)
+        return self
+    }
+    
+    func WHERE(column:T1,_ condition:String = "") -> Self {
+        _handle.sql.append("WHERE \(T1.table_name).\(column) \(condition)")
+        return self
+    }
+    
+    func AND(column:T1,_ condition:String = "") -> Self {
+        return self
+    }
+    
+    func OR(column:T1,_ condition:String = "") -> Self {
+        return self
+    }
+    
+    func XOR(column:T1,_ condition:String = "") -> Self {
+        return self
+    }
+    
+    func WHERE(column:T2,_ condition:String = "") -> Self {
+        return self
+    }
+    
+    func AND(column:T2,_ condition:String = "") -> Self {
+        return self
+    }
+    
+    func OR(column:T2,_ condition:String = "") -> Self {
+        return self
+    }
+    
+    func XOR(column:T2,_ condition:String = "") -> Self {
+        return self
+    }
+    
+    func WHERE(column1:T1,_ condition:String, _ column2:T2) -> Self {
+        return self
+    }
+    
+    func AND(column1:T1,_ condition:String, _ column2:T2) -> Self {
+        return self
+    }
+    
+    func OR(column1:T1,_ condition:String, _ column2:T2) -> Self {
+        return self
+    }
+    
+    func XOR(column1:T1,_ condition:String, _ column2:T2) -> Self {
+        return self
+    }
+}
+
+// MARK: - 配合 SELECT 语句
+public func *  <T:DBTableType>(lhs:SQLBase, rhs:SQL<T>) -> SQL<T> {
+    lhs._handle.sql.append("*")
+    lhs._handle.sql.appendContentsOf(rhs._handle.sql)
+    rhs._handle = lhs._handle
+    return rhs
+}
+//public func *  <T:DBTableType>(lhs:SQLBase, rhs:SQLWhere<T>) -> SQLWhere<T> {
+//    rhs._handle.sql.insertContentsOf(lhs._handle.sql, at: 0)
+//    rhs._handle.sql.insert("*", atIndex: lhs._handle.sql.count)
+//    return rhs
+//}
+public func *  <T:DBTableType>(lhs:SQLBase, rhs:SQLInsert<T>) -> SQLInsert<T> {
+    lhs._handle.sql.append("*")
+    lhs._handle.sql.appendContentsOf(rhs._handle.sql)
+    rhs._handle = lhs._handle
+    return rhs
+}
+public func *  (lhs:SQLBase, rhs:SQLBase) -> SQLBase {
+    lhs._handle.sql.append("*")
+    lhs._handle.sql.appendContentsOf(rhs._handle.sql)
+    rhs._handle = lhs._handle
+    return rhs
+}
+
+// MARK: - SQL语句常量于函数
+/// 空数据样式
+public let NULL = DataBaseNull()
+public let NOT_NULL = DataBaseNotNull()
+
+public var DB_NOW:NSTimeInterval { return NSDate().timeIntervalSince1970 }
+public let DELETE:SQLBase = SQLBase("DELETE")
+public let SELECT:SQLBase = SQLBase("SELECT")
+public let INSERT:SQLBase = SQLBase("INSERT")
+public let ALERT :SQLBase = SQLBase("ALERT")
+
+public func SELECT(TOP value:Int) -> SQLBase {
+    return SQLBase("SELECT TOP \(value)")
+}
+
+public func FROM<T:DBTableType>(_:T.Type) -> SQL<T> {
+    return SQL<T>().FROM(T.self)
+}
+public func UPDATE<T:DBTableType>(_:T.Type) -> SQL<T> {
+    let sql = SQL<T>()
+    sql._handle.sql.append(#function)
+    sql._handle.sql.append(T.table_name)
+    return sql
+}
 
 // MARK: - ColumnState 头附加状态
 public struct DataBaseColumnOptions : OptionSetType, CustomStringConvertible {
     public let rawValue: Int
     public init(rawValue: Int) { self.rawValue = rawValue }
     
-    static let None             = DataBaseColumnOptions(rawValue: 0)
-    static let PrimaryKey       = DataBaseColumnOptions(rawValue: 1 << 0)
-    static let Autoincrement    = DataBaseColumnOptions(rawValue: 1 << 1)
+    static let None                 = DataBaseColumnOptions(rawValue: 0)
+    static let PrimaryKey           = DataBaseColumnOptions(rawValue: 1 << 0)
+    static let Autoincrement        = DataBaseColumnOptions(rawValue: 1 << 1)
     static let PrimaryKeyAutoincrement: DataBaseColumnOptions = [PrimaryKey, Autoincrement]
-    static let NotNull          = DataBaseColumnOptions(rawValue: 1 << 2)
-    static let Unique           = DataBaseColumnOptions(rawValue: 1 << 3)
-    static let Check            = DataBaseColumnOptions(rawValue: 1 << 4)
-    static let ForeignKey       = DataBaseColumnOptions(rawValue: 1 << 5)
-    static let ConstraintKey    = DataBaseColumnOptions(rawValue: 1 << 6)       // 属于联合主键
+    static let NotNull              = DataBaseColumnOptions(rawValue: 1 << 2)
+    static let Unique               = DataBaseColumnOptions(rawValue: 1 << 3)
+    static let Check                = DataBaseColumnOptions(rawValue: 1 << 4)
+    static let ForeignKey           = DataBaseColumnOptions(rawValue: 1 << 5)
+    static let ConstraintKey        = DataBaseColumnOptions(rawValue: 1 << 6)       // 属于联合主键
     static let ConstraintPrimaryKey = DataBaseColumnOptions(rawValue: 1 << 7)   // 联合主键名
     
     public var description:String {
@@ -126,151 +624,39 @@ public enum DataBaseColumnType : CInt, CustomStringConvertible {
 }
 
 // MARK: - 遍历枚举
-public protocol Enumerable: Hashable {
-    func enumerate() -> AnyGenerator<Self>
-}
-extension Enumerable {
-    public func enumerate() -> AnyGenerator<Self> {
+extension DBTableType {
+    public var defaultValue:CustomStringConvertible? { return nil }
+    
+    private static func enumerateEnum<T: Hashable>(_: T.Type) -> AnyGenerator<T> {
+        var i = 0
+        return AnyGenerator {
+            let next = withUnsafePointer(&i) { UnsafePointer<T>($0).memory }
+            defer { i += 1 }
+            return next.hashValue == i ? next : nil
+        }
+    }
+    
+    public static func enumerate() -> AnyGenerator<Self> {
         return enumerateEnum(Self)
     }
 }
-/// Enumerate enum type with `for v in Enum`
-func enumerateEnum<T: Hashable>(_: T.Type) -> AnyGenerator<T> {
-    var i = 0
-    return AnyGenerator {
-        let next = withUnsafePointer(&i) { UnsafePointer<T>($0).memory }
-        defer { i += 1 }
-        return next.hashValue == i ? next : nil
-    }
-}
-extension DBTableColumn {
-    var defaultValue:CustomStringConvertible? { return nil }
-}
 
-// MARK: - SQL 构造句柄
-//protocol SQLHandleBase {
-//    
-//    var _sql:String { set get }
-//    var _handle:COpaquePointer { set get }
-//    init(_ handle:COpaquePointer)
-//
-//    mutating func FROM<Table:DBTableType>(table:Table.Type) -> Self
-//}
-//
-//extension SQLHandleBase {
-//    
-//    mutating func FROM<Table:DBTableType>(table:Table.Type) -> Self {
-//        _sql += " FROM \(table.name)"
-//        print(_sql)
-//        return self
-//    }
-//}
-
-class SQLHandleBase {
-    private var _sql: String = ""
-    private var _handle:COpaquePointer
-    private init(_ handle:COpaquePointer) { _handle = handle }
+// MARK: - SQLite 默认序列表
+public enum SQLiteSequence:String, DBTableType {
+    case name
+    case seq
     
-    func FROM<Table:DBTableType>(table:Table.Type) -> Self {
-        _sql += " FROM \(table.name)"
-        print(_sql)
-        return self
+    public var type: DataBaseColumnType {
+        switch self {
+        case .name: return .Text
+        case .seq : return .Integer
+        }
     }
+    public var option: DataBaseColumnOptions {
+        switch self {
+        case .name: return .PrimaryKey
+        default:    return .NotNull
+        }
+    }
+    public static let table_name:String = "sqlite_sequence"
 }
-
-final class SQLHandle<T:DBTableType>:SQLHandleBase {
-    
-    private init(_ handle:SQLHandleBase) {
-        super.init(handle._handle)
-        _sql = handle._sql
-    }
-    
-    func SELECT(columns:T.Column...) -> SQLHandle<T> {
-        _sql += " SELECT " + columns.map({ "\($0)" }).joinWithSeparator(", ")
-        return self
-    }
-    
-    func WHERE(columns:T.Column,_ condition:String = "") -> Self {
-        return self
-    }
-    
-    func AND(columns:T.Column,_ condition:String = "") -> Self {
-        return self
-    }
-    
-    func OR(columns:T.Column,_ condition:String = "") -> Self {
-        return self
-    }
-    
-    func XOR(columns:T.Column,_ condition:String = "") -> Self {
-        return self
-    }
-    
-    func IN(params:Any...) -> SQLHandle<T> {
-        return self
-    }
-}
-
-final class SQLHandle2<T1:DBTableType,T2:DBTableType>:SQLHandleBase {
-
-    private init(_ handle:SQLHandleBase) {
-        super.init(handle._handle)
-        _sql = handle._sql
-    }
-    
-    func SELECT(columns1:[T1.Column],_ columns2:[T2.Column]) -> Self {
-        _sql = columns1.reduce(_sql + " SELECT ") { $0 + "\(T1.name).\($1), " }
-        _sql += columns2.map({ "\(T2.name).\($0)" }).joinWithSeparator(", ")
-        return self
-    }
-    
-    func WHERE(columns:T2.Column,_ condition:String = "") -> Self {
-        return self
-    }
-    
-    func AND(columns:T2.Column,_ condition:String = "") -> Self {
-        return self
-    }
-    
-    func OR(columns:T2.Column,_ condition:String = "") -> Self {
-        return self
-    }
-    
-    func XOR(columns:T2.Column,_ condition:String = "") -> Self {
-        return self
-    }
-}
-
-//class SQLHandle3<T1:DBTableType,T2:DBTableType,T3:DBTableType> : SQLHandle2<T1,T2> {
-//    
-//    override init(_ handle: COpaquePointer) {
-//        super.init(handle)
-//    }
-//    
-//    func SELECT(columns1:[T1.Column],_ columns2:[T2.Column],_ columns3:[T3.Column]) -> SQLHandle3<T1,T2,T3> {
-//        return self
-//    }
-//}
-//
-//class SQLHandle4<T1:DBTableType,T2:DBTableType,T3:DBTableType,T4:DBTableType> : SQLHandle3<T1,T2,T3> {
-//    
-//    override init(_ handle: COpaquePointer) {
-//        super.init(handle)
-//    }
-//    
-//    func SELECT(columns1:[T1.Column],_ columns2:[T2.Column],_ columns3:[T3.Column],_ columns4:[T4.Column]) -> SQLHandle4<T1,T2,T3,T4> {
-//        return self
-//    }
-//}
-/*
-class SQLHandle5<T1:DBTableType,T2:DBTableType,T3:DBTableType,T4:DBTableType,T5:DBTableType> : SQLHandle4<T1,T2,T3,T4> {
-    
-    override init(_ handle: COpaquePointer) {
-        super.init(handle)
-    }
-    
-    func SELECT(columns1:[T1.Column],_ columns2:[T2.Column],_ columns3:[T3.Column],_ columns4:[T4.Column],_ columns5:[T5.Column]) -> SQLHandle5<T1,T2,T3,T4,T5> {
-        return self
-    }
-}
-*/
