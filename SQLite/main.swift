@@ -47,11 +47,12 @@ class Book {
         let sql3 = DELETE.FROM(PayInfo).WHERE(.userid == 5)
         print("sql3",sql3)
         
-        let sql4 = UPDATE(PayInfo).SET(.money == 9, .product == "3322").WHERE(.money & 8 >= 0)
+        let sql4 = UPDATE(PayInfo).SET(.money == 9, .product == "3322").WHERE(.money + 8 - 9 != 9)
         print("sql4",sql4)
         
         let password:String? = "nihao123"
-        let sql5 = SELECT * FROM(UserInfo).WHERE(.password <> password)
+        let sql5 = SELECT * FROM(UserInfo).WHERE(.password != password)
+        
         print("sql5",sql5)
         
         let sql6 = INSERT.OR.REPLACE.INTO(UserInfo)[.userid, .password, .username].VALUES(1,"33123","xiaobo")
