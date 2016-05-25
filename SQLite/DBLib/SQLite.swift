@@ -246,6 +246,14 @@ public class SQLBase: DBSQLHandleType, CustomStringConvertible {
         _handle.addCondition(Table.table_name)
         return SQL<Table>(_handle)
     }
+    func TABLE(oldTableName:String) -> Self {
+        _handle.addCondition(oldTableName)
+        return self
+    }
+    func RENAME<Table:DBTableType>(TO _:Table.Type) -> SQL<Table> {
+        _handle.sql.append("RENAME TO \(Table.table_name)")
+        return SQL<Table>(_handle)
+    }
     
     func FROM<Table:DBTableType>(_:Table.Type) -> SQL<Table> {
         _handle.addCondition(Table.table_name)
@@ -297,6 +305,11 @@ public class SQL<T:DBTableType>:SQLBase {
     
     public required init(_ handle:DBSQLHandle? = nil) { super.init(handle) }
     
+    // MARK: select
+    func COUNT(columns:T...) -> Self {
+        _handle.sql.append("COUNT(" + columns.map({ "\($0)" }).joinWithSeparator(", ") + ")")
+        return self
+    }
     func SELECT(columns:T...) -> Self {
         _handle.sql.append("SELECT " + columns.map({ "\($0)" }).joinWithSeparator(", "))
         return self
@@ -305,21 +318,32 @@ public class SQL<T:DBTableType>:SQLBase {
         _handle.sql.append("SELECT DISTINCT " + columns.map({ "\($0)" }).joinWithSeparator(", "))
         return self
     }
-    
+    func SELECT(TOP value:Int, columns:T...) -> Self {
+        _handle.sql.append("SELECT TOP \(value) " + columns.map({ "\($0)" }).joinWithSeparator(", "))
+        return self
+    }
     var SELECT:SQL {
         _handle.sql.append("SELECT")
         return self
     }
     
+    // MARK: alter
+    func RENAME(COLUMN oldColumnName:String, TO column:T) -> Self {
+        _handle.sql.append("RENAME COLUMN \(oldColumnName) TO \(column)")
+        return self
+    }
+    func DROP(COLUMN column:T) -> Self {
+        _handle.sql.append("DROP COLUMN \(column)")
+        return self
+    }
+    func MODIFY(column:T,_ columnType:DataBaseColumnType) {
+        _handle.sql.append("MODIFY \(column) \(columnType)")
+    }
+    func ADD(column:T,_ columnType:DataBaseColumnType) {
+        _handle.sql.append("ADD \(column) \(columnType)")
+    }
     
-    func COUNT(columns:T...) -> Self {
-        _handle.sql.append("COUNT(" + columns.map({ "\($0)" }).joinWithSeparator(", ") + ")")
-        return self
-    }
-    func SELECT(TOP value:Int, columns:T...) -> Self {
-        _handle.sql.append("SELECT TOP \(value) " + columns.map({ "\($0)" }).joinWithSeparator(", "))
-        return self
-    }
+    // MARK: where
     func WHERE(column:T) -> Self {
         _handle.addCondition("\(column)")
         return self
@@ -380,7 +404,16 @@ public class SQL<T:DBTableType>:SQLBase {
         _handle.addCondition(condition().description)
         return self
     }
+    override func IN(sql: SQLBase) -> Self {
+        super.IN(sql)
+        return self
+    }
+    override func IN(params: Any...) -> Self {
+        super.IN(params)
+        return self
+    }
     
+    // MARK: update
     func SET(@autoclosure   condition1:() -> DBCondition<T,T>,
              @autoclosure _ condition2:() -> DBCondition<T,T>) -> Self {
         _handle.addCondition([
@@ -423,15 +456,6 @@ public class SQL<T:DBTableType>:SQLBase {
             condition4().description,
             condition5().description
             ].joinWithSeparator(", "))
-        return self
-    }
-    override func IN(sql: SQLBase) -> Self {
-        super.IN(sql)
-        return self
-    }
-    
-    override func IN(params: Any...) -> Self {
-        super.IN(params)
         return self
     }
 }
