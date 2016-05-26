@@ -1195,11 +1195,6 @@ public func *  <T:DBTableType>(lhs:SQLBase, rhs:SQL<T>) -> SQL<T> {
     rhs._handle = lhs._handle
     return rhs
 }
-//public func *  <T:DBTableType>(lhs:SQLBase, rhs:SQLWhere<T>) -> SQLWhere<T> {
-//    rhs._handle.sql.insertContentsOf(lhs._handle.sql, at: 0)
-//    rhs._handle.sql.insert("*", atIndex: lhs._handle.sql.count)
-//    return rhs
-//}
 public func *  <T:DBTableType>(lhs:SQLBase, rhs:SQLInsert<T>) -> SQLInsert<T> {
     lhs._handle.sql.append("*")
     lhs._handle.sql.appendContentsOf(rhs._handle.sql)
@@ -1219,10 +1214,10 @@ public let NULL = DataBaseNull()
 public let NOT_NULL = DataBaseNotNull()
 
 public var DB_NOW:NSTimeInterval { return NSDate().timeIntervalSince1970 }
-public let DELETE:SQLBase = SQLBase("DELETE")
-public let SELECT:SQLBase = SQLBase("SELECT")
-public let INSERT:SQLBase = SQLBase("INSERT")
-public let ALERT :SQLBase = SQLBase("ALERT")
+public var DELETE:SQLBase { return SQLBase("DELETE") }
+public var SELECT:SQLBase { return SQLBase("SELECT") }
+public var INSERT:SQLBase { return SQLBase("INSERT") }
+public var ALERT :SQLBase { return SQLBase("ALERT")  }
 
 public func SELECT(TOP value:Int) -> SQLBase {
     return SQLBase("SELECT TOP \(value)")
