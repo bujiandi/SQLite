@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		396F08161CF701D500845968 /* SQLiteErrorType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 396F08151CF701D500845968 /* SQLiteErrorType.swift */; };
+		39C9E2F61CF70FE900464AAD /* SQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39C9E2F51CF70FE900464AAD /* SQL.swift */; };
 		39DAB1831CEC8F660078FEBF /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39DAB1821CEC8F660078FEBF /* main.swift */; };
 		39DAB18D1CEC8FAF0078FEBF /* libsqlite3.0.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 39DAB18C1CEC8FAF0078FEBF /* libsqlite3.0.tbd */; };
 		39DAB1931CEC91B90078FEBF /* SQLite.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39DAB1921CEC91B90078FEBF /* SQLite.swift */; };
@@ -26,6 +28,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		396F08151CF701D500845968 /* SQLiteErrorType.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = SQLiteErrorType.swift; path = DBLib/SQLiteErrorType.swift; sourceTree = "<group>"; };
+		39C9E2F51CF70FE900464AAD /* SQL.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = SQL.swift; path = DBLib/SQL.swift; sourceTree = "<group>"; };
 		39DAB17F1CEC8F660078FEBF /* SQLite */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = SQLite; sourceTree = BUILT_PRODUCTS_DIR; };
 		39DAB1821CEC8F660078FEBF /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		39DAB1891CEC8F880078FEBF /* SQLite-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SQLite-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -86,7 +90,9 @@
 		39DAB18F1CEC8FD00078FEBF /* DBLib */ = {
 			isa = PBXGroup;
 			children = (
+				39C9E2F51CF70FE900464AAD /* SQL.swift */,
 				39DAB1921CEC91B90078FEBF /* SQLite.swift */,
+				396F08151CF701D500845968 /* SQLiteErrorType.swift */,
 			);
 			name = DBLib;
 			sourceTree = "<group>";
@@ -157,7 +163,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				39DAB1831CEC8F660078FEBF /* main.swift in Sources */,
+				39C9E2F61CF70FE900464AAD /* SQL.swift in Sources */,
 				39DAB1961CEC922A0078FEBF /* UserInfo.swift in Sources */,
+				396F08161CF701D500845968 /* SQLiteErrorType.swift in Sources */,
 				39DAB1931CEC91B90078FEBF /* SQLite.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -287,6 +295,7 @@
 				39DAB1881CEC8F660078FEBF /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};

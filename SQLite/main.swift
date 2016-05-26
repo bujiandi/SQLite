@@ -13,19 +13,18 @@ import Foundation
 class Book {
     init() {
         //let db = SQLite.open(.ReadWrite)
-        
+        defer { print("最后释放") }
         //let sql = db.createSQLHandleWithTables(UserInfo.self, PayInfo.self)
         var abc = [1,2,3,4,5]
         abc.sortInPlace(<)
         
         let sql = SQL2<UserInfo, PayInfo>()
-        
-        
-        
+                
         sql.SELECT([.password, .phonenum], [.money, .product])
             .FROM(UserInfo.self, PayInfo.self)
-            .WHERE(.userid, "=", .userid)
-            .AND(.money, "=5")
+            .WHERE(.userid == .userid)
+            .AND(.money == .null)
+        
         print(sql)
         //let sql1 = db.createSQLHandleWithTable(UserInfo)
         //let sql1 = SQL<UserInfo>()
@@ -57,6 +56,9 @@ class Book {
         
         let sql6 = INSERT.OR.REPLACE.INTO(UserInfo)[.userid, .password, .username].VALUES(1,"33123","xiaobo")
         print("sql6",sql6)
+        
+        let sql7 = SELECT * FROM(UserInfo).LEFT.JOIN(PayInfo).ON(.userid == .userid).WHERE(.password != password)
+        print("sql7",sql7)
 
         print(DB_NOW)
         sleep(1)

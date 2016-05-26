@@ -34,9 +34,6 @@ enum UserInfo: String, DBTableType {
         }
     }
 
-//    enum Column:String, DBTableColumn {
-//        
-//    }
 }
 
 enum PayInfo: String, DBTableType {
