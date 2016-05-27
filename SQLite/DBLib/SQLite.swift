@@ -11,83 +11,11 @@ import Foundation
 // MARK: - ErrorType
 public class DBError : NSError {}
 
-// MARK: - 数据库操作句柄
-public class DBHandle {
-    private var _handle:COpaquePointer
-    private init (_ handle:COpaquePointer) { _handle = handle }
-    
-    deinit { if _handle != nil { sqlite3_close(_handle) } }
-    
-    var version:Int {
-        get {
-            var stmt:COpaquePointer = nil
-            if SQLITE_OK == sqlite3_prepare_v2(_handle, "PRAGMA user_version", -1, &stmt, nil) {
-                defer { sqlite3_finalize(stmt) }
-                return SQLITE_ROW == sqlite3_step(stmt) ? Int(sqlite3_column_int(stmt, 0)) : 0
-            }
-            return -1
-        }
-        set { sqlite3_exec(_handle, "PRAGMA user_version = \(newValue)", nil, nil, nil) }
-    }
-    
-    public var lastError:DBError {
-        let errorCode = sqlite3_errcode(_handle)
-        let errorDescription = String.fromCString(sqlite3_errmsg(_handle)) ?? ""
-        return DBError(domain: errorDescription, code: Int(errorCode), userInfo: nil)
-    }
-    private var _lastSQL:String?
-    public var lastSQL:String { return _lastSQL ?? "" }
-    
-    // MARK: 执行SQL
-    public func exec(sql:String) throws {
-        _lastSQL = sql
-        let flag = sqlite3_exec(_handle, sql, nil, nil, nil)
-        if flag != SQLITE_OK { throw lastError }
-    }
-    public func exec(sql:SQLBase) throws {
-        try exec(sql.description)
-    }
-    
-    internal func query(sql:String) throws -> COpaquePointer {
-        var stmt:COpaquePointer = nil
-        _lastSQL = sql
-        if SQLITE_OK != sqlite3_prepare_v2(_handle, sql, -1, &stmt, nil) {
-            sqlite3_finalize(stmt)
-            throw lastError
-        }
-        return stmt //DBRowSet(stmt)
-    }
-    
-    public var lastErrorMessage:String {
-        return String.fromCString(sqlite3_errmsg(_handle)) ?? ""
-    }
-    public var lastInsertRowID:Int64 {
-        return sqlite3_last_insert_rowid(_handle)
-    }
-    
-    
-}
-
-// MARK: - transaction 事务
-extension DBHandle {
-    // MARK: 开启事务 BEGIN TRANSACTION
-    func beginTransaction() -> CInt {
-        return sqlite3_exec(_handle,"BEGIN TRANSACTION",nil,nil,nil)
-    }
-    // MARK: 提交事务 COMMIT TRANSACTION
-    func commitTransaction() -> CInt {
-        return sqlite3_exec(_handle,"COMMIT TRANSACTION",nil,nil,nil)
-    }
-    // MARK: 回滚事务 ROLLBACK TRANSACTION
-    func rollbackTransaction() -> CInt {
-        return sqlite3_exec(_handle,"ROLLBACK TRANSACTION",nil,nil,nil)
-    }
-}
 
 // MARK: - enum 枚举(数据库只读模式等)
 public enum DBOpenMode: CInt {
-    case ReadWrite = 0x00000002
-    case ReadOnly  = 0x00000001
+    case ReadWrite = 0x00000002 // SQLITE_OPEN_READWRITE
+    case ReadOnly  = 0x00000001 // SQLITE_OPEN_READONLY
 }
 
 // MARK: - SQLite
@@ -119,7 +47,6 @@ public class SQLite {
         if !fileManager.fileExistsAtPath(dirPath, isDirectory: &isDir) || isDir {
             try fileManager.createDirectoryAtPath(dirPath, withIntermediateDirectories: true, attributes: nil)
         }
-        //sqlite3_open(dbPath.UTF8String, &handle)
         let result = sqlite3_open_v2(dbPath.UTF8String, &handle, mode.rawValue, nil)
         if result != SQLITE_OK {
             let errorDescription = String.fromCString(sqlite3_errmsg(handle)) ?? ""

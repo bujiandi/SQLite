@@ -328,10 +328,14 @@ public class DBBindSet<T:DBTableType> {
     func bindClear() -> CInt {
         return sqlite3_clear_bindings(_stmt)
     }
-    func bindValue<U>(columnValue:U?, column:T) throws {
+    
+    func bindValue<U>(value:U?, column:T) throws {
         if let index = _columns.indexOf(column) {
-            try bindValue(columnValue, index: index)
-        } else { print("SQL中不存在 列:\(column)") }
+            try bindValue(value, index: index + 1)
+        } else {
+            print("SQL中不存在 列:\(column)")
+            throw DBError(domain: "SQL中不存在 列:\(column)", code: -1, userInfo: nil)
+        }
     }
     // 泛型绑定
     func bindValue<U>(columnValue:U?, index:Int) throws {
@@ -397,6 +401,64 @@ public class DBBindSet<T:DBTableType> {
         }
     }
 }
+
+// MARK: - 数据库操作句柄
+public class DBHandle {
+    private var _handle:COpaquePointer
+    internal init (_ handle:COpaquePointer) { _handle = handle }
+    
+    deinit { if _handle != nil { sqlite3_close(_handle) } }
+    
+    var version:Int {
+        get {
+            var stmt:COpaquePointer = nil
+            if SQLITE_OK == sqlite3_prepare_v2(_handle, "PRAGMA user_version", -1, &stmt, nil) {
+                defer { sqlite3_finalize(stmt) }
+                return SQLITE_ROW == sqlite3_step(stmt) ? Int(sqlite3_column_int(stmt, 0)) : 0
+            }
+            return -1
+        }
+        set { sqlite3_exec(_handle, "PRAGMA user_version = \(newValue)", nil, nil, nil) }
+    }
+    
+    public var lastError:DBError {
+        let errorCode = sqlite3_errcode(_handle)
+        let errorDescription = String.fromCString(sqlite3_errmsg(_handle)) ?? ""
+        return DBError(domain: errorDescription, code: Int(errorCode), userInfo: nil)
+    }
+    private var _lastSQL:String?
+    public var lastSQL:String { return _lastSQL ?? "" }
+    
+    // MARK: 执行SQL
+    public func exec(sql:String) throws {
+        _lastSQL = sql
+        let flag = sqlite3_exec(_handle, sql, nil, nil, nil)
+        if flag != SQLITE_OK { throw lastError }
+    }
+    public func exec(sql:SQLBase) throws {
+        try exec(sql.description)
+    }
+    
+    private func query(sql:String) throws -> COpaquePointer {
+        var stmt:COpaquePointer = nil
+        _lastSQL = sql
+        if SQLITE_OK != sqlite3_prepare_v2(_handle, sql, -1, &stmt, nil) {
+            sqlite3_finalize(stmt)
+            throw lastError
+        }
+        return stmt //DBRowSet(stmt)
+    }
+    
+    public var lastErrorMessage:String {
+        return String.fromCString(sqlite3_errmsg(_handle)) ?? ""
+    }
+    public var lastInsertRowID:Int64 {
+        return sqlite3_last_insert_rowid(_handle)
+    }
+    
+    
+}
+
 // MARK: - base execute sql function
 extension DBHandle {
     // 单表查询
@@ -407,6 +469,12 @@ extension DBHandle {
     // 双表查询
     public func query<T1:DBTableType, T2:DBTableType>(sql:SQL2<T1, T2>) throws -> DBResultSet<T1> {
         return DBResultSet<T1>(try query(sql.description))
+    }
+    
+    // 清空表
+    public func truncateTable<T:DBTableType>(_:T.Type) throws {
+        try exec(DELETE.FROM(T))
+        try exec(UPDATE(SQLiteSequence).SET(.seq == 0).WHERE(.name == T.table_name))
     }
     
     // 创建表
@@ -435,7 +503,22 @@ extension DBHandle {
         
         try exec("CREATE TABLE\(otherSQL) \(T.table_name) (\(params))")
     }
-    
+}
+
+// MARK: - transaction 事务
+extension DBHandle {
+    // MARK: 开启事务 BEGIN TRANSACTION
+    func beginTransaction() -> CInt {
+        return sqlite3_exec(_handle,"BEGIN TRANSACTION",nil,nil,nil)
+    }
+    // MARK: 提交事务 COMMIT TRANSACTION
+    func commitTransaction() -> CInt {
+        return sqlite3_exec(_handle,"COMMIT TRANSACTION",nil,nil,nil)
+    }
+    // MARK: 回滚事务 ROLLBACK TRANSACTION
+    func rollbackTransaction() -> CInt {
+        return sqlite3_exec(_handle,"ROLLBACK TRANSACTION",nil,nil,nil)
+    }
 }
 
 // MARK: - 空与非空对象
@@ -707,16 +790,22 @@ public class SQLBase: DBSQLHandleType, CustomStringConvertible {
         _handle.sql.append("REPLACE")
         return self
     }
-    func IN(sql:SQLBase) -> Self {
-        _handle.sql.append("IN(\(sql))")
-        return self
-    }
+//    func IN(sql:SQLBase) -> Self {
+//        _handle.sql.append("IN(\(sql))")
+//        return self
+//    }
     
-    func IN(params:Any...) -> Self {
-        let text = params.map({ filterSQLAny($0) }).joinWithSeparator(", ")
+    func IN<I:CollectionType>(params:I) -> Self {
+        var set = Set<String>()
+        params.forEach { set.insert( "\($0)" ) }
+        let text = set.joinWithSeparator(", ")
         _handle.sql.append("IN(\(text))")
         return self
     }
+//    func IN(params:Any...) -> Self {
+//        IN(params)
+//        return self
+//    }
     
     public var description: String {
         return _handle.sql.joinWithSeparator(" ")
@@ -729,6 +818,7 @@ public class SQL<T:DBTableType>:SQLBase {
     public typealias Table = T
     
     public required init(_ handle:DBSQLHandle? = nil) { super.init(handle) }
+    public override init(_ base: String) { super.init(base) }
     
     // MARK: select
     func COUNT(columns:T...) -> Self {
@@ -793,6 +883,14 @@ public class SQL<T:DBTableType>:SQLBase {
         _handle.addCondition(condition().description)
         return self
     }
+    public var DESC:SQL<T> {
+        _handle.sql.append("DESC")
+        return self
+    }
+    public func ORDER(BY text:String) -> Self {
+        _handle.sql.append("ORDER BY \(text)")
+        return self
+    }
     public func ORDER(BY columns:T...) -> Self {
         _handle.sql.append("ORDER BY " + columns.map({ "\($0)" }).joinWithSeparator(", "))
         return self
@@ -845,14 +943,22 @@ public class SQL<T:DBTableType>:SQLBase {
         _handle.addCondition(condition().description)
         return self
     }
-    override func IN(sql: SQLBase) -> Self {
-        super.IN(sql)
+//    override func IN(sql: SQLBase) -> SQL<T> {
+//        super.IN(sql)
+//        return self
+//    }
+    func IN<U:DBTableType>(sql: SQL<U>) -> SQL<T> {
+        _handle.sql.append("IN(\(sql.description))")
         return self
     }
-    override func IN(params: Any...) -> Self {
+    func IN(params:[String]) -> Self {
         super.IN(params)
         return self
     }
+//    override func IN(params: Any...) -> Self {
+//        super.IN(params)
+//        return self
+//    }
     
     // MARK: update
     func SET(@autoclosure   condition :() -> DBCondition<T,DBNullTable>) -> Self {
@@ -925,7 +1031,7 @@ public class SQLInsert<T:DBTableType>: DBSQLHandleType {
         _handle.sql.append("VALUES(\(text))")
         return SQL<T>(_handle)
     }
-    func VALUES<U>(values:[U], insertTo db:DBHandle, binds:(id:Int, value:U, bindSet:DBBindSet<T>) throws -> () ) throws {
+    func VALUES<U>(values:[U], into db:DBHandle, binds:(id:Int, value:U, bindSet:DBBindSet<T>) throws -> () ) throws {
         
         // 如果列字段为 * 则 遍历此表所有列
         if columns.isEmpty {
@@ -937,8 +1043,9 @@ public class SQLInsert<T:DBTableType>: DBSQLHandleType {
         _handle.sql.append("VALUES(\(texts))")
         // TODO: 批量插入
         let stmt = try db.query(_handle.sql.joinWithSeparator(" "))
+        print("创建插入句柄")
         // 方法完成后释放 数据操作句柄
-        defer { sqlite3_finalize(stmt) }
+        //defer { sqlite3_finalize(stmt);print("释放插入句柄") }
         let bindSet = DBBindSet<T>(stmt, columns)
         
         // 获取最后一次插入的ID
@@ -971,6 +1078,7 @@ public class SQLInsert<T:DBTableType>: DBSQLHandleType {
                 }
             }
         }
+        sqlite3_finalize(stmt);print("释放插入句柄")
         if flag == SQLITE_OK || flag == SQLITE_DONE {
             flag = SQLITE_OK
             db.commitTransaction()
@@ -1127,65 +1235,84 @@ public class SQL2<T1:DBTableType,T2:DBTableType>:SQL<T1> {
         _handle.addCondition(condition().debugDescription)
         return self
     }
-    override func IN(sql: SQLBase) -> Self {
-        super.IN(sql)
-        return self
-    }
-    override func IN(params: Any...) -> Self {
-        super.IN(params)
-        return self
-    }
+//    override func IN(sql: SQLBase) -> Self {
+//        super.IN(sql)
+//        return self
+//    }
+//    override func IN(params: Any...) -> Self {
+//        super.IN(params)
+//        return self
+//    }
     
     // MARK: update
-    func SET(@autoclosure   condition :() -> DBCondition<T1,T2>) -> Self {
-        _handle.addCondition(condition().debugDescription)
-        return self
-    }
-    func SET(@autoclosure   condition1:() -> DBCondition<T1,T2>,
-             @autoclosure _ condition2:() -> DBCondition<T1,T2>) -> Self {
-        _handle.addCondition([
-            condition1().debugDescription,
-            condition2().debugDescription
-            ].joinWithSeparator(", "))
-        return self
-    }
-    func SET(@autoclosure   condition1:() -> DBCondition<T1,T2>,
-             @autoclosure _ condition2:() -> DBCondition<T1,T2>,
-             @autoclosure _ condition3:() -> DBCondition<T1,T2>) -> Self {
-        _handle.addCondition([
-            condition1().debugDescription,
-            condition2().debugDescription,
-            condition3().debugDescription
-            ].joinWithSeparator(", "))
-        return self
-    }
-    func SET(@autoclosure   condition1:() -> DBCondition<T1,T2>,
-             @autoclosure _ condition2:() -> DBCondition<T1,T2>,
-             @autoclosure _ condition3:() -> DBCondition<T1,T2>,
-             @autoclosure _ condition4:() -> DBCondition<T1,T2>) -> Self {
-        _handle.addCondition([
-            condition1().debugDescription,
-            condition2().debugDescription,
-            condition3().debugDescription,
-            condition4().debugDescription
-            ].joinWithSeparator(", "))
-        return self
-    }
-    func SET(@autoclosure   condition1:() -> DBCondition<T1,T2>,
-             @autoclosure _ condition2:() -> DBCondition<T1,T2>,
-             @autoclosure _ condition3:() -> DBCondition<T1,T2>,
-             @autoclosure _ condition4:() -> DBCondition<T1,T2>,
-             @autoclosure _ condition5:() -> DBCondition<T1,T2>) -> Self {
-        _handle.addCondition([
-            condition1().debugDescription,
-            condition2().debugDescription,
-            condition3().debugDescription,
-            condition4().debugDescription,
-            condition5().debugDescription
-            ].joinWithSeparator(", "))
-        return self
-    }
+//    func SET(@autoclosure   condition :() -> DBCondition<T1,T2>) -> Self {
+//        _handle.addCondition(condition().debugDescription)
+//        return self
+//    }
+//    func SET(@autoclosure   condition1:() -> DBCondition<T1,T2>,
+//             @autoclosure _ condition2:() -> DBCondition<T1,T2>) -> Self {
+//        _handle.addCondition([
+//            condition1().debugDescription,
+//            condition2().debugDescription
+//            ].joinWithSeparator(", "))
+//        return self
+//    }
+//    func SET(@autoclosure   condition1:() -> DBCondition<T1,T2>,
+//             @autoclosure _ condition2:() -> DBCondition<T1,T2>,
+//             @autoclosure _ condition3:() -> DBCondition<T1,T2>) -> Self {
+//        _handle.addCondition([
+//            condition1().debugDescription,
+//            condition2().debugDescription,
+//            condition3().debugDescription
+//            ].joinWithSeparator(", "))
+//        return self
+//    }
+//    func SET(@autoclosure   condition1:() -> DBCondition<T1,T2>,
+//             @autoclosure _ condition2:() -> DBCondition<T1,T2>,
+//             @autoclosure _ condition3:() -> DBCondition<T1,T2>,
+//             @autoclosure _ condition4:() -> DBCondition<T1,T2>) -> Self {
+//        _handle.addCondition([
+//            condition1().debugDescription,
+//            condition2().debugDescription,
+//            condition3().debugDescription,
+//            condition4().debugDescription
+//            ].joinWithSeparator(", "))
+//        return self
+//    }
+//    func SET(@autoclosure   condition1:() -> DBCondition<T1,T2>,
+//             @autoclosure _ condition2:() -> DBCondition<T1,T2>,
+//             @autoclosure _ condition3:() -> DBCondition<T1,T2>,
+//             @autoclosure _ condition4:() -> DBCondition<T1,T2>,
+//             @autoclosure _ condition5:() -> DBCondition<T1,T2>) -> Self {
+//        _handle.addCondition([
+//            condition1().debugDescription,
+//            condition2().debugDescription,
+//            condition3().debugDescription,
+//            condition4().debugDescription,
+//            condition5().debugDescription
+//            ].joinWithSeparator(", "))
+//        return self
+//    }
     
+}
+
+extension SQL {
+    public func WHERE(@autoclosure condition:() -> DBCondition<T,T>) -> Self {
+        _handle.addCondition(condition().description)
+        return self
+    }
+    public func AND(@autoclosure condition:() -> DBCondition<T,T>) -> Self {
+        _handle.addCondition(condition().description)
+        return self
+    }
+    public func OR(@autoclosure condition:() -> DBCondition<T,T>) -> Self {
+        _handle.addCondition(condition().description)
+        return self
+    }
+    public func XOR(@autoclosure condition:() -> DBCondition<T,T>) -> Self {
+        _handle.addCondition(condition().description)
+        return self
+    }
 }
 
 // MARK: - 配合 SELECT 语句
@@ -1218,6 +1345,9 @@ public var DELETE:SQLBase { return SQLBase("DELETE") }
 public var SELECT:SQLBase { return SQLBase("SELECT") }
 public var INSERT:SQLBase { return SQLBase("INSERT") }
 public var ALERT :SQLBase { return SQLBase("ALERT")  }
+
+public func RANDOM() -> String { return "RANDOM()" }
+
 
 public func SELECT(TOP value:Int) -> SQLBase {
     return SQLBase("SELECT TOP \(value)")
