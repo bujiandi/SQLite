@@ -1382,3 +1382,22 @@ public enum SQLiteSequence:String, DBTableType {
     }
     public static let table_name:String = "sqlite_sequence"
 }
+
+public enum SQLiteMaster:String, DBTableType {
+    case type
+    case name
+    case tbl_name
+    case rootpage
+    case sql
+    
+    public var type: DataBaseColumnType {
+        switch self {
+        case .rootpage: return .Integer
+        default : return .Text
+        }
+    }
+    public var option: DataBaseColumnOptions {
+        return .NotNull
+    }
+    public static let table_name:String = "sqlite_master"
+}
