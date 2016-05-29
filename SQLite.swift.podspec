@@ -13,11 +13,11 @@ Pod::Spec.new do |s|
     intent.
                        DESC
 
-  s.homepage         = "https://github.com/stephencelis/SQLite.swift"
-  s.license          = 'MIT'
-  s.author           = { "Stephen Celis" => "stephen@stephencelis.com" }
-  s.source           = { :git => "https://github.com/stephencelis/SQLite.swift.git", :tag => s.version.to_s }
-  s.social_media_url = 'https://twitter.com/stephencelis'
+  s.homepage         = "https://github.com/bujiandi/SQLite.swift"
+  s.license          = 'FenFen'
+  s.author           = { "yFenFen" => "lzl@appfenfen.com" }
+  s.source           = { :git => "https://github.com/bujiandi/SQLite.swift.git", :tag => s.version.to_s }
+  s.social_media_url = 'http://weibo.com/u/3483057700/home'
 
   s.module_name      = 'SQLite'
   s.ios.deployment_target = "8.0"
@@ -45,7 +45,6 @@ Pod::Spec.new do |s|
 
   s.subspec 'standalone' do |ss|
     ss.source_files = 'SQLite/**/*.{c,h,m,swift}'
-    ss.private_header_files = 'SQLite/Core/fts3_tokenizer.h'
     ss.xcconfig = { 'OTHER_SWIFT_FLAGS' => '$(inherited) -DSQLITE_SWIFT_STANDALONE' }
 
     ss.dependency 'sqlite3'
