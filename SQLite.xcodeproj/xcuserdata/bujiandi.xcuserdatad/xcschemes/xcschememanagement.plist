@@ -4,15 +4,60 @@
 <dict>
 	<key>SchemeUserState</key>
 	<dict>
-		<key>SQLite.xcscheme</key>
+		<key>SQLite Mac.xcscheme_^#shared#^_</key>
+		<dict>
+			<key>orderHint</key>
+			<integer>1</integer>
+		</dict>
+		<key>SQLite iOS.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
 			<integer>0</integer>
 		</dict>
+		<key>SQLite tvOS.xcscheme_^#shared#^_</key>
+		<dict>
+			<key>orderHint</key>
+			<integer>2</integer>
+		</dict>
+		<key>SQLite watchOS.xcscheme</key>
+		<dict>
+			<key>orderHint</key>
+			<integer>3</integer>
+		</dict>
 	</dict>
 	<key>SuppressBuildableAutocreation</key>
 	<dict>
-		<key>39DAB17E1CEC8F660078FEBF</key>
+		<key>03A65E591C6BB0F50062603F</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>03A65E621C6BB0F60062603F</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>A121AC441CA35C79005A31D1</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>EE247AD21C3F04ED00AE3E12</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>EE247ADC1C3F04ED00AE3E12</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>EE247B3B1C3F3ED000AE3E12</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>EE247B441C3F3ED000AE3E12</key>
 		<dict>
 			<key>primary</key>
 			<true/>

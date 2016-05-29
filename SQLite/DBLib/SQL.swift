@@ -7,6 +7,11 @@
 //
 
 import Foundation
+#if SQLITE_SWIFT_STANDALONE
+import sqlite3
+#else
+import CSQLite
+#endif
 
 // MARK: - protocols 接口(创建数据表需用枚举实现以下接口)
 /// 注: enum OneTable: String, DBTableType
@@ -50,7 +55,7 @@ public struct DataBaseColumnOptions : OptionSetType, CustomStringConvertible {
     static let NotNull              = DataBaseColumnOptions(rawValue: 1 << 2)
     static let Unique               = DataBaseColumnOptions(rawValue: 1 << 3)
     static let Check                = DataBaseColumnOptions(rawValue: 1 << 4)
-    static let ForeignKey           = DataBaseColumnOptions(rawValue: 1 << 5)
+    //static let ForeignKey           = DataBaseColumnOptions(rawValue: 1 << 5)
     static let DeletedKey           = DataBaseColumnOptions(rawValue: 1 << 6)
     
     
@@ -66,7 +71,7 @@ public struct DataBaseColumnOptions : OptionSetType, CustomStringConvertible {
         if contains(.NotNull)       { result.appendContentsOf(" NOT NULL") }
         if contains(.Unique)        { result.appendContentsOf(" UNIQUE") }
         if contains(.Check)         { result.appendContentsOf(" CHECK") }
-        if contains(.ForeignKey)    { result.appendContentsOf(" FOREIGN KEY") }
+        //if contains(.ForeignKey)    { result.appendContentsOf(" FOREIGN KEY") }
         
         return result
     }
@@ -144,8 +149,8 @@ public class DBResultSet<T:DBTableType>: GeneratorType, SequenceType {
     }
     
     private let _columns:[String]
-    var columnCount:Int { return _columns.count }
-    var isClosed:Bool { return _stmt == nil }
+    public var columnCount:Int { return _columns.count }
+    public var isClosed:Bool { return _stmt == nil }
 }
 
 // MARK: rowset 基础
@@ -226,11 +231,11 @@ public class DBRowSetBase {
         return String.fromCString(UnsafePointer<CChar>(result))
     }
     
-    func getColumnIndex(columnName: String) -> Int {
+    public func getColumnIndex(columnName: String) -> Int {
         return _columns.indexOf({ $0 == columnName.lowercaseString }) ?? NSNotFound
     }
     
-    var columnCount:Int { return _columns.count }
+    public var columnCount:Int { return _columns.count }
 }
 
 public class DBRowSet<T:DBTableType>: DBRowSetBase {
@@ -321,15 +326,15 @@ public class DBBindSet<T:DBTableType> {
         _columns = columns
     }
     
-    var bindCount:CInt {
+    public var bindCount:CInt {
         return sqlite3_bind_parameter_count(_stmt)
     }
     
-    func bindClear() -> CInt {
+    public func bindClear() -> CInt {
         return sqlite3_clear_bindings(_stmt)
     }
     
-    func bindValue<U>(value:U?, column:T) throws {
+    public func bindValue<U>(value:U?, column:T) throws {
         if let index = _columns.indexOf(column) {
             try bindValue(value, index: index + 1)
         } else {
@@ -338,7 +343,7 @@ public class DBBindSet<T:DBTableType> {
         }
     }
     // 泛型绑定
-    func bindValue<U>(columnValue:U?, index:Int) throws {
+    public func bindValue<U>(columnValue:U?, index:Int) throws {
         
         var flag:CInt = SQLITE_ROW
         if let v = columnValue {
@@ -745,35 +750,35 @@ public class SQLBase: DBSQLHandleType, CustomStringConvertible {
         _handle.sql.append(base)
     }
     
-    func INTO<Table:DBTableType>(_:Table.Type) -> SQLInsert<Table> {
+    public func INTO<Table:DBTableType>(_:Table.Type) -> SQLInsert<Table> {
         _handle.addCondition(Table.table_name)
         return SQLInsert<Table>(_handle)
     }
     
-    func TABLE<Table:DBTableType>(_:Table.Type) -> SQL<Table> {
+    public func TABLE<Table:DBTableType>(_:Table.Type) -> SQL<Table> {
         _handle.addCondition(Table.table_name)
         return SQL<Table>(_handle)
     }
-    func TABLE(oldTableName:String) -> Self {
+    public func TABLE(oldTableName:String) -> Self {
         _handle.addCondition(oldTableName)
         return self
     }
-    func RENAME<Table:DBTableType>(TO _:Table.Type) -> SQL<Table> {
+    public func RENAME<Table:DBTableType>(TO _:Table.Type) -> SQL<Table> {
         _handle.sql.append("RENAME TO \(Table.table_name)")
         return SQL<Table>(_handle)
     }
     
-    func FROM<Table:DBTableType>(_:Table.Type) -> SQL<Table> {
+    public func FROM<Table:DBTableType>(_:Table.Type) -> SQL<Table> {
         _handle.addCondition(Table.table_name)
         return SQL<Table>(_handle)
     }
     
-    func FROM<T1:DBTableType, T2:DBTableType>(_:T1.Type,_:T2.Type) -> SQL2<T1,T2> {
+    public func FROM<T1:DBTableType, T2:DBTableType>(_:T1.Type,_:T2.Type) -> SQL2<T1,T2> {
         _handle.sql.append("FROM \(T1.table_name), \(T2.table_name)")
         return SQL2<T1,T2>(_handle)
     }
     
-    func COUNT(@noescape columns:(SQLBase,SQLBase)->SQLBase) -> SQLBase {
+    public func COUNT(@noescape columns:(SQLBase,SQLBase)->SQLBase) -> SQLBase {
         _handle.sql.append("COUNT(")
         return columns(self, SQLBase(")"))
     }
@@ -795,7 +800,7 @@ public class SQLBase: DBSQLHandleType, CustomStringConvertible {
 //        return self
 //    }
     
-    func IN<I:CollectionType>(params:I) -> Self {
+    public func IN<I:CollectionType>(params:I) -> Self {
         var set = Set<String>()
         params.forEach { set.insert( "\($0)" ) }
         let text = set.joinWithSeparator(", ")
@@ -821,65 +826,65 @@ public class SQL<T:DBTableType>:SQLBase {
     public override init(_ base: String) { super.init(base) }
     
     // MARK: select
-    func COUNT(columns:T...) -> Self {
+    public func COUNT(columns:T...) -> Self {
         _handle.sql.append("COUNT(" + columns.map({ "\($0)" }).joinWithSeparator(", ") + ")")
         return self
     }
-    func SELECT(columns:T...) -> Self {
+    public func SELECT(columns:T...) -> Self {
         _handle.sql.append("SELECT " + columns.map({ "\($0)" }).joinWithSeparator(", "))
         return self
     }
-    func SELECT(DISTINCT columns:T...) -> Self {
+    public func SELECT(DISTINCT columns:T...) -> Self {
         _handle.sql.append("SELECT DISTINCT " + columns.map({ "\($0)" }).joinWithSeparator(", "))
         return self
     }
-    func SELECT(TOP value:Int,_ columns:T...) -> Self {
+    public func SELECT(TOP value:Int,_ columns:T...) -> Self {
         _handle.sql.append("SELECT TOP \(value) " + columns.map({ "\($0)" }).joinWithSeparator(", "))
         return self
     }
-    var SELECT:SQL {
+    public var SELECT:SQL {
         _handle.sql.append("SELECT")
         return self
     }
     
     // MARK: join
-    var LEFT:SQL {
+    public var LEFT:SQL {
         _handle.sql.append("LEFT")
         return self
     }
-    var RIGHT:SQL {
+    public var RIGHT:SQL {
         _handle.sql.append("RIGHT")
         return self
     }
-    func JOIN<Table:DBTableType>(_:Table.Type) -> SQL2<T,Table> {
+    public func JOIN<Table:DBTableType>(_:Table.Type) -> SQL2<T,Table> {
         _handle.addCondition(Table.table_name)
         return SQL2<T,Table>(_handle)
     }
     
     // MARK: alter
-    func RENAME(COLUMN oldColumnName:String, TO column:T) -> Self {
+    public func RENAME(COLUMN oldColumnName:String, TO column:T) -> Self {
         _handle.sql.append("RENAME COLUMN \(oldColumnName) TO \(column)")
         return self
     }
-    func DROP(COLUMN column:T) -> Self {
+    public func DROP(COLUMN column:T) -> Self {
         _handle.sql.append("DROP COLUMN \(column)")
         return self
     }
-    func MODIFY(column:T,_ columnType:DataBaseColumnType) -> Self {
+    public func MODIFY(column:T,_ columnType:DataBaseColumnType) -> Self {
         _handle.sql.append("MODIFY \(column) \(columnType)")
         return self
     }
-    func ADD(column:T,_ columnType:DataBaseColumnType) -> Self {
+    public func ADD(column:T,_ columnType:DataBaseColumnType) -> Self {
         _handle.sql.append("ADD \(column) \(columnType)")
         return self
     }
     
     // MARK: where
-    func WHERE(column:T) -> Self {
+    public func WHERE(column:T) -> Self {
         _handle.addCondition("\(column)")
         return self
     }
-    func WHERE(@autoclosure condition:() -> DBCondition<T,DBNullTable>) -> Self {
+    public func WHERE(@autoclosure condition:() -> DBCondition<T,DBNullTable>) -> Self {
         _handle.addCondition(condition().description)
         return self
     }
@@ -947,11 +952,11 @@ public class SQL<T:DBTableType>:SQLBase {
 //        super.IN(sql)
 //        return self
 //    }
-    func IN<U:DBTableType>(sql: SQL<U>) -> SQL<T> {
+    public func IN<U:DBTableType>(sql: SQL<U>) -> SQL<T> {
         _handle.sql.append("IN(\(sql.description))")
         return self
     }
-    func IN(params:[String]) -> Self {
+    public func IN(params:[String]) -> Self {
         super.IN(params)
         return self
     }
@@ -961,11 +966,11 @@ public class SQL<T:DBTableType>:SQLBase {
 //    }
     
     // MARK: update
-    func SET(@autoclosure   condition :() -> DBCondition<T,DBNullTable>) -> Self {
+    public func SET(@autoclosure   condition :() -> DBCondition<T,DBNullTable>) -> Self {
         _handle.addCondition(condition().description)
         return self
     }
-    func SET(@autoclosure   condition1:() -> DBCondition<T,DBNullTable>,
+    public func SET(@autoclosure   condition1:() -> DBCondition<T,DBNullTable>,
              @autoclosure _ condition2:() -> DBCondition<T,DBNullTable>) -> Self {
         _handle.addCondition([
             condition1().description,
@@ -973,7 +978,7 @@ public class SQL<T:DBTableType>:SQLBase {
             ].joinWithSeparator(", "))
         return self
     }
-    func SET(@autoclosure   condition1:() -> DBCondition<T,DBNullTable>,
+    public func SET(@autoclosure   condition1:() -> DBCondition<T,DBNullTable>,
              @autoclosure _ condition2:() -> DBCondition<T,DBNullTable>,
              @autoclosure _ condition3:() -> DBCondition<T,DBNullTable>) -> Self {
         _handle.addCondition([
@@ -983,7 +988,7 @@ public class SQL<T:DBTableType>:SQLBase {
             ].joinWithSeparator(", "))
         return self
     }
-    func SET(@autoclosure   condition1:() -> DBCondition<T,DBNullTable>,
+    public func SET(@autoclosure   condition1:() -> DBCondition<T,DBNullTable>,
              @autoclosure _ condition2:() -> DBCondition<T,DBNullTable>,
              @autoclosure _ condition3:() -> DBCondition<T,DBNullTable>,
              @autoclosure _ condition4:() -> DBCondition<T,DBNullTable>) -> Self {
@@ -995,7 +1000,7 @@ public class SQL<T:DBTableType>:SQLBase {
             ].joinWithSeparator(", "))
         return self
     }
-    func SET(@autoclosure   condition1:() -> DBCondition<T,DBNullTable>,
+    public func SET(@autoclosure   condition1:() -> DBCondition<T,DBNullTable>,
              @autoclosure _ condition2:() -> DBCondition<T,DBNullTable>,
              @autoclosure _ condition3:() -> DBCondition<T,DBNullTable>,
              @autoclosure _ condition4:() -> DBCondition<T,DBNullTable>,
@@ -1019,19 +1024,19 @@ public class SQLInsert<T:DBTableType>: DBSQLHandleType {
         _handle = handle ?? DBSQLHandle()
     }
     
-    subscript(columns:T...) -> SQLInsert<T> {
+    public subscript(columns:T...) -> SQLInsert<T> {
         let text = columns.map({ "\($0)" }).joinWithSeparator(", ")
         _handle.sql.append("(\(text))")
         self.columns = columns
         return self
     }
     
-    func VALUES(params:Any...) -> SQL<T> {
+    public func VALUES(params:Any...) -> SQL<T> {
         let text = params.map({ filterSQLAny($0) }).joinWithSeparator(", ")
         _handle.sql.append("VALUES(\(text))")
         return SQL<T>(_handle)
     }
-    func VALUES<U>(values:[U], into db:DBHandle, binds:(id:Int, value:U, bindSet:DBBindSet<T>) throws -> () ) throws {
+    public func VALUES<U>(values:[U], into db:DBHandle, binds:(id:Int, value:U, bindSet:DBBindSet<T>) throws -> () ) throws {
         
         // 如果列字段为 * 则 遍历此表所有列
         if columns.isEmpty {
@@ -1096,7 +1101,7 @@ public class SQL2<T1:DBTableType,T2:DBTableType>:SQL<T1> {
     public required init(_ handle:DBSQLHandle? = nil) { super.init(handle) }
     
     // MARK: join
-    func SELECT(columns1:[T1],_ columns2:[T2]) -> Self {
+    public func SELECT(columns1:[T1],_ columns2:[T2]) -> Self {
         var text = columns1.reduce("SELECT ") { $0 + "\(T1.table_name).\($1), " }
         text += columns2.map({ "\(T2.table_name).\($0)" }).joinWithSeparator(", ")
         _handle.sql.append(text)
@@ -1104,29 +1109,29 @@ public class SQL2<T1:DBTableType,T2:DBTableType>:SQL<T1> {
     }
     
     // MARK: join
-    func ON(@autoclosure condition:() -> DBCondition<T1,T2>) -> Self {
+    public func ON(@autoclosure condition:() -> DBCondition<T1,T2>) -> Self {
         _handle.addCondition(condition().debugDescription)
         return self
     }
     
     // MARK: where
-    override func WHERE(column:T1) -> Self {
+    public override func WHERE(column:T1) -> Self {
         _handle.addCondition("\(T1.table_name).\(column)")
         return self
     }
-    func WHERE(column:T2) -> Self {
+    public func WHERE(column:T2) -> Self {
         _handle.addCondition("\(T2.table_name).\(column)")
         return self
     }
-    func WHERE(@autoclosure condition:() -> DBCondition<T1,T2>) -> Self {
+    public func WHERE(@autoclosure condition:() -> DBCondition<T1,T2>) -> Self {
         _handle.addCondition(condition().debugDescription)
         return self
     }
-    func WHERE(@autoclosure condition:() -> DBCondition<T2,DBNullTable>) -> Self {
+    public func WHERE(@autoclosure condition:() -> DBCondition<T2,DBNullTable>) -> Self {
         _handle.addCondition(condition().debugDescription)
         return self
     }
-    override func WHERE(@autoclosure condition:() -> DBCondition<T1,DBNullTable>) -> Self {
+    public override func WHERE(@autoclosure condition:() -> DBCondition<T1,DBNullTable>) -> Self {
         _handle.addCondition(condition().debugDescription)
         return self
     }
