@@ -48,15 +48,15 @@ public struct DataBaseColumnOptions : OptionSetType, CustomStringConvertible {
     public let rawValue: Int
     public init(rawValue: Int) { self.rawValue = rawValue }
     
-    static let None                 = DataBaseColumnOptions(rawValue: 0)
-    static let PrimaryKey           = DataBaseColumnOptions(rawValue: 1 << 0)
-    static let Autoincrement        = DataBaseColumnOptions(rawValue: 1 << 1)
-    static let PrimaryKeyAutoincrement: DataBaseColumnOptions = [PrimaryKey, Autoincrement]
-    static let NotNull              = DataBaseColumnOptions(rawValue: 1 << 2)
-    static let Unique               = DataBaseColumnOptions(rawValue: 1 << 3)
-    static let Check                = DataBaseColumnOptions(rawValue: 1 << 4)
-    //static let ForeignKey           = DataBaseColumnOptions(rawValue: 1 << 5)
-    static let DeletedKey           = DataBaseColumnOptions(rawValue: 1 << 6)
+    public static let None                 = DataBaseColumnOptions(rawValue: 0)
+    public static let PrimaryKey           = DataBaseColumnOptions(rawValue: 1 << 0)
+    public static let Autoincrement        = DataBaseColumnOptions(rawValue: 1 << 1)
+    public static let PrimaryKeyAutoincrement: DataBaseColumnOptions = [PrimaryKey, Autoincrement]
+    public static let NotNull              = DataBaseColumnOptions(rawValue: 1 << 2)
+    public static let Unique               = DataBaseColumnOptions(rawValue: 1 << 3)
+    public static let Check                = DataBaseColumnOptions(rawValue: 1 << 4)
+    //public static let ForeignKey           = DataBaseColumnOptions(rawValue: 1 << 5)
+    public static let DeletedKey           = DataBaseColumnOptions(rawValue: 1 << 6)
     
     
     public var description:String {
