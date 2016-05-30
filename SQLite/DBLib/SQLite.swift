@@ -18,7 +18,7 @@ public class DBError : NSError {}
 
 // MARK: - enum 枚举(数据库只读模式等)
 public enum DBOpenMode: CInt {
-    case ReadWrite = 0x00000002 // SQLITE_OPEN_READWRITE
+    case ReadWrite = 0x00000006 // SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE
     case ReadOnly  = 0x00000001 // SQLITE_OPEN_READONLY
 }
 
