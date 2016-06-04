@@ -1048,7 +1048,6 @@ public class SQLInsert<T:DBTableType>: DBSQLHandleType {
         _handle.sql.append("VALUES(\(texts))")
         // TODO: 批量插入
         let stmt = try db.query(_handle.sql.joinWithSeparator(" "))
-        print("创建插入句柄")
         // 方法完成后释放 数据操作句柄
         //defer { sqlite3_finalize(stmt);print("释放插入句柄") }
         let bindSet = DBBindSet<T>(stmt, columns)
@@ -1083,7 +1082,7 @@ public class SQLInsert<T:DBTableType>: DBSQLHandleType {
                 }
             }
         }
-        sqlite3_finalize(stmt);print("释放插入句柄")
+        sqlite3_finalize(stmt)
         if flag == SQLITE_OK || flag == SQLITE_DONE {
             flag = SQLITE_OK
             db.commitTransaction()
