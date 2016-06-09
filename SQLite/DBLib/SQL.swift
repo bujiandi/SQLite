@@ -1063,13 +1063,13 @@ public class SQLInsert<T:DBTableType>: DBSQLHandleType {
         flag = sqlite3_step(stmt)
         db.rollbackTransaction()
         sqlite3_reset(stmt)
-        var lastInsertID = db.lastInsertRowID       //sqlite3_last_insert_rowid(db._handle)
+        var lastInsertID = max(db.lastInsertRowID, 1)       //sqlite3_last_insert_rowid(db._handle) // ID 不能等于0
         db.beginTransaction()
         
         // 插入数据
         for value in values {
             // 推测本条数据插入ID为最后一条插入数据的ID + 1
-            try binds(id: Int(truncatingBitPattern: lastInsertID) + 1, value: value, bindSet: bindSet)
+            try binds(id: Int(truncatingBitPattern: lastInsertID), value: value, bindSet: bindSet)
             flag = sqlite3_step(stmt)
             if flag != SQLITE_OK && flag != SQLITE_DONE {
                 #if DEBUG
