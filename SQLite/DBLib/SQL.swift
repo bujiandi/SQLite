@@ -10,7 +10,7 @@ import Foundation
 #if SQLITE_SWIFT_STANDALONE
 import sqlite3
 #else
-import CSQLite
+//import CSQLite
 #endif
 
 // MARK: - protocols 接口(创建数据表需用枚举实现以下接口)

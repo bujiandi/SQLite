@@ -10,7 +10,7 @@ import Foundation
 #if SQLITE_SWIFT_STANDALONE
 import sqlite3
 #else
-import CSQLite
+//import CSQLite
 #endif
 // MARK: - ErrorType
 public class DBError : NSError {}
