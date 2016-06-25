@@ -1186,6 +1186,7 @@ public class SQLInsert<T:DBTableType>: DBSQLHandleType {
         return SQL<T>(_handle)
     }
     public func VALUES<U>(values:[U], into db:DBHandle, binds:(id:Int, value:U, bindSet:DBBindSet<T>) throws -> () ) throws {
+        if values.count == 0 {  return  }
         // 如果列字段为 * 则 遍历此表所有列
         if columns.isEmpty {
             for column in T.enumerate() where !column.option.contains(.DeletedKey)  {
