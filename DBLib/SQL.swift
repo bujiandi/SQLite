@@ -539,20 +539,20 @@ public struct DataBaseNotNull: DBNullType {
 }
 
 // MARK: - 过滤 Any 类型中的字符串 与 nil
-private func filterSQLAny<T>(rhs:T?) -> String {
-    guard let v = rhs else { return "NULL" }
+private func filterSQLAny(rhs:Any) -> String {
+    
+    var v = rhs
+    let mirror = _reflect(v)
+    if mirror.disposition == .Optional {
+        if mirror.count == 0 { return "NULL" }
+        v = mirror[0].1.value
+    }
     switch v {
     case _ as NSNull:           return "NULL"
     case _ as DataBaseNull:     return "NULL"
     case let value as String:   return "'\(value)'"
     case let value as NSDate:   return "\(value.timeIntervalSince1970)"
-    default:                    //return "\(v)"
-        let mirror = _reflect(v)
-        if mirror.disposition == .Optional {
-            if mirror.count == 0 { return "NULL" }
-            return filterSQLAny(mirror[0].1.value)
-        }
-        return "\(v)"
+    default:                    return "\(v)"
     }
 }
 
