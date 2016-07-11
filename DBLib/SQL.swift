@@ -1208,13 +1208,19 @@ public class SQLInsert<T:DBTableType>: DBSQLHandleType {
         var flag:CInt = SQLITE_ERROR
         for i:Int in 0 ..< columns.count {
             let columnOption = columns[i].option
-            let value:Int? = columnOption.contains(.PrimaryKey) || columnOption.contains(.NotNull) ? nil : 1
-            try bindSet.bindValue(value, index: i + 1)
+            let value:Int? = columnOption.contains(.NotNull) ? 1 : nil
+            if !columnOption.contains(.PrimaryKey) {
+                try bindSet.bindValue(value, index: i + 1)
+            }
         }
         flag = sqlite3_step(stmt)
-        db.rollbackTransaction()
-        sqlite3_reset(stmt)
         var lastInsertID = max(db.lastInsertRowID, 1)       //sqlite3_last_insert_rowid(db._handle)
+        db.rollbackTransaction()
+        if flag == SQLITE_CONSTRAINT {
+            // 不符合字段约束
+            throw NSError(domain: "Abort due to constraint violation", code: Int(flag), userInfo: ["sql":_handle.sql.joinWithSeparator(" ")])
+        }
+        sqlite3_reset(stmt)
         db.beginTransaction()
         
         // 插入数据
