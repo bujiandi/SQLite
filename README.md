@@ -1,239 +1,82 @@
-# SQLite.swift 
+# FFSQLite
 
-[![Build Status][Badge]][Travis] [![CocoaPods Version](https://cocoapod-badges.herokuapp.com/v/SQLite.swift/badge.png)](http://cocoadocs.org/docsets/SQLite.swift) [![Platform](https://cocoapod-badges.herokuapp.com/p/SQLite.swift/badge.png)](http://cocoadocs.org/docsets/SQLite.swift) [![Carthage compatible](https://img.shields.io/badge/Carthage-compatible-4BC51D.svg?style=flat)](https://github.com/Carthage/Carthage) [![Join the chat at https://gitter.im/stephencelis/SQLite.swift](https://badges.gitter.im/stephencelis/SQLite.swift.svg)](https://gitter.im/stephencelis/SQLite.swift)
+## 特点
 
-A type-safe, [Swift][]-language layer over [SQLite3][].
+- 使用Swift语言
+- 方便使用，链式语法。
 
-[SQLite.swift][] provides compile-time confidence in SQL statement
-syntax _and_ intent.
+## 使用
 
-[Badge]: https://img.shields.io/travis/stephencelis/SQLite.swift/master.svg?style=flat
-[Travis]: https://travis-ci.org/stephencelis/SQLite.swift
-[Swift]: https://developer.apple.com/swift/
-[SQLite3]: http://www.sqlite.org
-[SQLite.swift]: https://github.com/stephencelis/SQLite.swift
+### 建立表模型
 
-
-## Features
-
- - A pure-Swift interface
- - A type-safe, optional-aware SQL expression builder
- - A flexible, chainable, lazy-executing query layer
- - Automatically-typed data access
- - A lightweight, uncomplicated query and parameter binding interface
- - Developer-friendly error handling and debugging
- - [Full-text search][] support
- - [Well-documented][See Documentation]
- - Extensively tested
- - Companion project has [SQLCipher support](https://github.com/stephencelis/SQLiteCipher.swift)
- - Active support at [StackOverflow](http://stackoverflow.com/questions/tagged/sqlite.swift), and [Gitter Chat Room](https://gitter.im/stephencelis/SQLite.swift) (_experimental_)
-
-[Full-text search]: Documentation/Index.md#full-text-search
-[See Documentation]: Documentation/Index.md#sqliteswift-documentation
-
-
-## Usage
+需继承DBTableType协议
 
 ``` swift
-import SQLite
+enum UserInfo: String, DBTableType {
 
-let db = try Connection("path/to/db.sqlite3")
+    static let table_name = "UserInfo"
 
-let users = Table("users")
-let id = Expression<Int64>("id")
-let name = Expression<String?>("name")
-let email = Expression<String>("email")
+    case userid
+    case username
+    case password
+    case phonenum
 
-try db.run(users.create { t in
-    t.column(id, primaryKey: true)
-    t.column(name)
-    t.column(email, unique: true)
-})
-// CREATE TABLE "users" (
-//     "id" INTEGER PRIMARY KEY NOT NULL,
-//     "name" TEXT,
-//     "email" TEXT NOT NULL UNIQUE
-// )
+    var type: DataBaseColumnType {
+        switch self {
+        case .userid:   return .Integer
+        case .username: return .Text
+        case .password: return .Text
+        case .phonenum: return .Text
+        }
+    }
+    var option: DataBaseColumnOptions {
+        switch self {
+        case .userid:   return .PrimaryKeyAutoincrement
+        case .username: return .NotNull
+        case .password: return .NotNull
+        case .phonenum: return .None
+        }
+    }
 
-let insert = users.insert(name <- "Alice", email <- "alice@mac.com")
-let rowid = try db.run(insert)
-// INSERT INTO "users" ("name", "email") VALUES ('Alice', 'alice@mac.com')
-
-for user in try db.prepare(users) {
-    print("id: \(user[id]), name: \(user[name]), email: \(user[email])")
-    // id: 1, name: Optional("Alice"), email: alice@mac.com
 }
-// SELECT * FROM "users"
-
-let alice = users.filter(id == rowid)
-
-try db.run(alice.update(email <- email.replace("mac.com", with: "me.com")))
-// UPDATE "users" SET "email" = replace("email", 'mac.com', 'me.com')
-// WHERE ("id" = 1)
-
-try db.run(alice.delete())
-// DELETE FROM "users" WHERE ("id" = 1)
-
-db.scalar(users.count) // 0
-// SELECT count(*) FROM "users"
 ```
 
-SQLite.swift also works as a lightweight, Swift-friendly wrapper over the C
-API.
 
-``` swift
-let stmt = try db.prepare("INSERT INTO users (email) VALUES (?)")
-for email in ["betty@icloud.com", "cathy@icloud.com"] {
-    try stmt.run(email)
-}
-
-db.totalChanges    // 3
-db.changes         // 1
-db.lastInsertRowid // 3
-
-for row in try db.prepare("SELECT id, email FROM users") {
-    print("id: \(row[0]), email: \(row[1])")
-    // id: Optional(2), email: Optional("betty@icloud.com")
-    // id: Optional(3), email: Optional("cathy@icloud.com")
-}
-
-db.scalar("SELECT count(*) FROM users") // 2
+### 单表查询
+```
+let sql = SQL<UserInfo>().SELECT.COUNT(.username, .phonenum, .username).FROM(UserInfo).WHERE(.username == 2)
 ```
 
-[Read the documentation][See Documentation] or explore more,
-interactively, from the Xcode project’s playground.
+### 多表查询
 
-![SQLite.playground Screen Shot](Documentation/Resources/playground@2x.png)
+```
+let sql = SQL2<UserInfo, PayInfo>()
+sql.SELECT([.password, .phonenum], [.money, .product]).FROM(UserInfo.self, PayInfo.self).WHERE(.userid == .userid).AND(.money == .null)
+```
 
-For a more comprehensive example, see [this article](http://masteringswift.blogspot.com/2015/09/create-data-access-layer-with.html) and the [companion repository](https://github.com/hoffmanjon/SQLiteDataAccessLayer2/tree/master).
+### 关联查询
 
-## Installation
+```
+let sql = SELECT * FROM(UserInfo).LEFT.JOIN(PayInfo).ON(.userid == .userid).WHERE(.password != password)
+```
 
-> _Note:_ SQLite.swift requires Swift 2 (and [Xcode][] 7) or greater.
->
-> The following instructions apply to targets that support embedded
-> Swift frameworks. To use SQLite.swift in iOS 7 or an OS X command line
-> tool, please read the [Frameworkless Targets][] section of the
-> documentation.
+### 删除数据
 
+```
+let sql = DELETE.FROM(PayInfo).WHERE(.userid == 5)
+```
 
-### Carthage
+### 插入数据
 
-[Carthage][] is a simple, decentralized dependency manager for Cocoa. To
-install SQLite.swift with Carthage:
+```
+let sql = INSERT.OR.REPLACE.INTO(UserInfo)[.userid, .password, .username].VALUES(1,”12345”,”fenfen”)
+```
 
- 1. Make sure Carthage is [installed][Carthage Installation].
+### 更新数据
 
- 2. Update your Cartfile to include the following:
-
-    ```
-    github "stephencelis/SQLite.swift" ~> 0.10.1
-    ```
-
- 3. Run `carthage update` and [add the appropriate framework][Carthage Usage].
-
-
-[Carthage]: https://github.com/Carthage/Carthage
-[Carthage Installation]: https://github.com/Carthage/Carthage#installing-carthage
-[Carthage Usage]: https://github.com/Carthage/Carthage#adding-frameworks-to-an-application
-
-
-### CocoaPods
-
-[CocoaPods][] is a dependency manager for Cocoa projects. To install
-SQLite.swift with CocoaPods:
-
- 1. Make sure the latest CocoaPods beta is [installed][CocoaPods
-    Installation]. (SQLite.swift requires version 1.0.0.beta.6 or greater.)
-
-    ``` sh
-    # Using the default Ruby install will require you to use sudo when
-    # installing and updating gems.
-    sudo gem install --pre cocoapods
-    ```
-
- 2. Update your Podfile to include the following:
-
-    ``` ruby
-    use_frameworks!
-
-    pod 'SQLite.swift', '~> 0.10.1'
-    ```
-
- 3. Run `pod install`.
-
-[CocoaPods]: https://cocoapods.org
-[CocoaPods Installation]: https://guides.cocoapods.org/using/getting-started.html#getting-started
-
-
-### Manual
-
-To install SQLite.swift as an Xcode sub-project:
-
- 1. Drag the **SQLite.xcodeproj** file into your own project.
-    ([Submodule][], clone, or [download][] the project first.)
-
-    ![Installation Screen Shot](Documentation/Resources/installation@2x.png)
-
- 2. In your target’s **General** tab, click the **+** button under **Linked
-    Frameworks and Libraries**.
-
- 3. Select the appropriate **SQLite.framework** for your platform.
-
- 4. **Add**.
-
-[Frameworkless Targets]: Documentation/Index.md#frameworkless-targets
-[Xcode]: https://developer.apple.com/xcode/downloads/
-[Submodule]: http://git-scm.com/book/en/Git-Tools-Submodules
-[download]: https://github.com/stephencelis/SQLite.swift/archive/master.zip
-
-
-## Communication
-
-[See the planning document] for a roadmap and existing feature requests.
-
-[Read the contributing guidelines][]. The _TL;DR_ (but please; _R_):
-
- - Need **help** or have a **general question**? [Ask on Stack
-   Overflow][] (tag `sqlite.swift`).
- - Found a **bug** or have a **feature request**? [Open an issue][].
- - Want to **contribute**? [Submit a pull request][].
-
-[See the planning document]: /Documentation/Planning.md 
-[Read the contributing guidelines]: ./CONTRIBUTING.md#contributing
-[Ask on Stack Overflow]: http://stackoverflow.com/questions/tagged/sqlite.swift
-[Open an issue]: https://github.com/stephencelis/SQLite.swift/issues/new
-[Submit a pull request]: https://github.com/stephencelis/SQLite.swift/fork
-
-
-## Author
-
- - [Stephen Celis](mailto:stephen@stephencelis.com)
-   ([@stephencelis](https://twitter.com/stephencelis))
-
+```
+let sql = UPDATE(PayInfo).SET(.money == 9, .product == "3322").WHERE(.money + 8 - 9 != 9)
+```
 
 ## License
-
-SQLite.swift is available under the MIT license. See [the LICENSE
-file](./LICENSE.txt) for more information.
-
-## Related
-
-These projects enhance or use SQLite.swift:
-
- - [SQLiteCipher.swift](https://github.com/stephencelis/SQLiteCipher.swift)
- - [SQLiteMigrationManager.swift](https://github.com/garriguv/SQLiteMigrationManager.swift) (inspired by [FMDBMigrationManager](https://github.com/layerhq/FMDBMigrationManager))
-
-
-## Alternatives
-
-Looking for something else? Try another Swift wrapper (or [FMDB][]):
-
- - [Camembert](https://github.com/remirobert/Camembert)
- - [EonilSQLite3](https://github.com/Eonil/SQLite3)
- - [SQLiteDB](https://github.com/FahimF/SQLiteDB)
- - [Squeal](https://github.com/nerdyc/Squeal)
- - [SwiftData](https://github.com/ryanfowler/SwiftData)
- - [SwiftSQLite](https://github.com/chrismsimpson/SwiftSQLite)
-
-[FMDB]: https://github.com/ccgus/fmdb
+FFSQLite is available under the MIT license. See \[the LICENSE file](./LICENSE.txt) for more information.
