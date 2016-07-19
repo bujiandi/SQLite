@@ -1148,11 +1148,17 @@ public class SQLSet<T:DBTableType>: SQLWhere<T> {
     }
     
     public subscript(column:T) -> SQLSet<T> {
+        if _handle.sql.last != "SET" {
+            _handle.sql.append(",")
+        }
         _handle.sql.append("\(column)")
         return self
     }
     
     public subscript(@autoclosure condition:() -> DBCondition<SQLSet,T,T>) -> SQLSet<T> {
+        if _handle.sql.last != "SET" {
+            _handle.sql.append(",")
+        }
         _handle.sql.append(condition().description)
         return self
     }
