@@ -48,7 +48,7 @@ public class SQLite {
         let fileManager:NSFileManager = NSFileManager.defaultManager()
         var isDir:ObjCBool = false
         
-        if !fileManager.fileExistsAtPath(dirPath, isDirectory: &isDir) || isDir {
+        if !fileManager.fileExistsAtPath(dirPath, isDirectory: &isDir) || !isDir {
             try fileManager.createDirectoryAtPath(dirPath, withIntermediateDirectories: true, attributes: nil)
         }
         let result = sqlite3_open_v2(dbPath.UTF8String, &handle, mode.rawValue, nil)
