@@ -29,22 +29,24 @@ public protocol DBTableType: RawRepresentable, Hashable {
 extension DBTableType {
     public var defaultValue:CustomStringConvertible? { return nil }
     
-    private static func enumerateEnum<T: Hashable>(_: T.Type) -> AnyGenerator<T> {
+    fileprivate static func enumerateEnum<T: Hashable>(_: T.Type) -> AnyIterator<T> {
         var i = 0
-        return AnyGenerator {
-            let next = withUnsafePointer(&i) { UnsafePointer<T>($0).memory }
+        return AnyIterator {
+            let next = withUnsafePointer(to: &i) {
+                unsafeBitCast($0, to: UnsafePointer<T>.self).pointee
+            }
             defer { i += 1 }
             return next.hashValue == i ? next : nil
         }
     }
     
-    public static func enumerate() -> AnyGenerator<Self> {
-        return enumerateEnum(Self)
+    public static func enumerate() -> AnyIterator<Self> {
+        return enumerateEnum(Self.self)
     }
 }
 
 // MARK: - ColumnState 头附加状态
-public struct DataBaseColumnOptions : OptionSetType, CustomStringConvertible {
+public struct DataBaseColumnOptions : OptionSet, CustomStringConvertible {
     public let rawValue: Int
     public init(rawValue: Int) { self.rawValue = rawValue }
     
@@ -55,7 +57,7 @@ public struct DataBaseColumnOptions : OptionSetType, CustomStringConvertible {
     public static let NotNull              = DataBaseColumnOptions(rawValue: 1 << 2)
     public static let Unique               = DataBaseColumnOptions(rawValue: 1 << 3)
     public static let Check                = DataBaseColumnOptions(rawValue: 1 << 4)
-    //public static let ForeignKey           = DataBaseColumnOptions(rawValue: 1 << 5)
+//    public static let ForeignKey           = DataBaseColumnOptions(rawValue: 1 << 5)
     public static let DeletedKey           = DataBaseColumnOptions(rawValue: 1 << 6)
     
     
@@ -63,14 +65,14 @@ public struct DataBaseColumnOptions : OptionSetType, CustomStringConvertible {
         return descriptionBy(false)
     }
     
-    private func descriptionBy(morePrimaryKey:Bool) -> String {
+    fileprivate func descriptionBy(_ morePrimaryKey:Bool) -> String {
         var result = ""
         
-        if !morePrimaryKey && contains(.PrimaryKey) { result.appendContentsOf(" PRIMARY KEY") }
-        if contains(.Autoincrement) { result.appendContentsOf(" AUTOINCREMENT") }
-        if contains(.NotNull)       { result.appendContentsOf(" NOT NULL") }
-        if contains(.Unique)        { result.appendContentsOf(" UNIQUE") }
-        if contains(.Check)         { result.appendContentsOf(" CHECK") }
+        if !morePrimaryKey && contains(.PrimaryKey) { result.append(" PRIMARY KEY") }
+        if contains(.Autoincrement) { result.append(" AUTOINCREMENT") }
+        if contains(.NotNull)       { result.append(" NOT NULL") }
+        if contains(.Unique)        { result.append(" UNIQUE") }
+        if contains(.Check)         { result.append(" CHECK") }
         //if contains(.ForeignKey)    { result.appendContentsOf(" FOREIGN KEY") }
         
         return result
@@ -79,35 +81,36 @@ public struct DataBaseColumnOptions : OptionSetType, CustomStringConvertible {
 
 // MARK: - ColumnType
 public enum DataBaseColumnType : CInt, CustomStringConvertible {
-    case Integer = 1
-    case Float
-    case Text
-    case Blob
-    case Null
+    case integer = 1
+    case float
+    case text
+    case blob
+    case null
     
     public var description:String {
         switch self {
-        case .Integer:  return "INTEGER"
-        case .Float:    return "FLOAT"
-        case .Text:     return "TEXT"
-        case .Blob:     return "BLOB"
-        case .Null:     return "NULL"
+        case .integer:  return "INTEGER"
+        case .float:    return "FLOAT"
+        case .text:     return "TEXT"
+        case .blob:     return "BLOB"
+        case .null:     return "NULL"
         }
     }
 }
 
 // MARK: - result set 结果集
-public class DBResultSet<T:DBTableType>: GeneratorType, SequenceType {
+open class DBResultSet<T:DBTableType>: IteratorProtocol, Sequence {
     public typealias Element = DBRowSet<T>
     
-    private var _stmt:COpaquePointer = nil
-    private init (_ stmt:COpaquePointer) {
+    fileprivate var _stmt:OpaquePointer? = nil
+    fileprivate init (_ stmt:OpaquePointer) {
         _stmt = stmt
         let length = sqlite3_column_count(_stmt);
         var columns:[String] = []
         for i:CInt in 0..<length {
             let name:UnsafePointer<CChar> = sqlite3_column_name(_stmt,i)
-            columns.append(String.fromCString(name)!.lowercaseString)
+            
+            columns.append(String(cString: name).lowercased())
         }
         //print(columns)
         _columns = columns
@@ -118,52 +121,52 @@ public class DBResultSet<T:DBTableType>: GeneratorType, SequenceType {
         }
     }
     
-    public var row:Int {
+    open var row:Int {
         return Int(sqlite3_data_count(_stmt))
     }
     
-    public var step:CInt {
+    open var step:CInt {
         return sqlite3_step(_stmt)
     }
     
-    public func reset() {
+    open func reset() {
         sqlite3_reset(_stmt)
     }
     
-    public func close() {
+    open func close() {
         if _stmt != nil {
             sqlite3_finalize(_stmt)
             _stmt = nil
         }
     }
     
-    public func next() -> DBRowSet<T>? {
-        return step != SQLITE_ROW ? nil : DBRowSet<T>(_stmt, _columns)
+    open func next() -> DBRowSet<T>? {
+        return step != SQLITE_ROW ? nil : DBRowSet<T>(_stmt!, _columns)
     }
     
-    public func firstValue() -> Int {
+    open func firstValue() -> Int {
         if step == SQLITE_ROW {
             return Int(sqlite3_column_int(_stmt, 0))
         }
         return 0
     }
     
-    private let _columns:[String]
-    public var columnCount:Int { return _columns.count }
-    public var isClosed:Bool { return _stmt == nil }
+    fileprivate let _columns:[String]
+    open var columnCount:Int { return _columns.count }
+    open var isClosed:Bool { return _stmt == nil }
 }
 
 // MARK: rowset 基础
-public class DBRowSetBase {
-    private var _stmt:COpaquePointer = nil
-    private let _columns:[String]
+open class DBRowSetBase {
+    fileprivate var _stmt:OpaquePointer? = nil
+    fileprivate let _columns:[String]
     
-    private init (_ stmt:COpaquePointer,_ columns:[String]) {
+    fileprivate init (_ stmt:OpaquePointer,_ columns:[String]) {
         _stmt = stmt
         _columns = columns
     }
     
-    public func getDictionary() -> [String:Any] {
+    open func getDictionary() -> [String:Any] {
         var dict:[String:Any] = [:]
         for i in 0..<_columns.count {
             let index = CInt(i)
@@ -177,11 +180,11 @@ public class DBRowSetBase {
                 value = Double(sqlite3_column_double(_stmt, index))
             case SQLITE_TEXT:
                 let text:UnsafePointer<UInt8> = sqlite3_column_text(_stmt, index)
-                value = String.fromCString(UnsafePointer<CChar>(text))
+                value = String(cString: text)
             case SQLITE_BLOB:
-                let data:UnsafePointer<Void> = sqlite3_column_blob(_stmt, index)
+                let data:UnsafeRawPointer = sqlite3_column_blob(_stmt, index)
                 let size:CInt = sqlite3_column_bytes(_stmt, index)
-                value = NSData(bytes:data, length: Int(size))
+                value = Data(bytes: data, count: Int(size))
             case SQLITE_NULL:   fallthrough     //下降关键字 执行下一 CASE
             default :           break           //什么都不执行
             }
@@ -199,97 +202,104 @@ public class DBRowSetBase {
         
         return dict
     }
-    public func getInt64(columnIndex:Int) -> Int64 {
+    open func getInt64(_ columnIndex:Int) -> Int64 {
         return sqlite3_column_int64(_stmt, CInt(columnIndex))
     }
-    public func getUInt64(columnIndex:Int) -> UInt64 {
+    open func getUInt64(_ columnIndex:Int) -> UInt64 {
         return UInt64(bitPattern: getInt64(columnIndex))
     }
-    public func getInt(columnIndex:Int) -> Int {
+    open func getInt(_ columnIndex:Int) -> Int {
         return Int(truncatingBitPattern: getInt64(columnIndex))
     }
-    public func getUInt(columnIndex:Int) -> UInt {
+    open func getUInt(_ columnIndex:Int) -> UInt {
         return UInt(truncatingBitPattern: getInt64(columnIndex))
     }
-    public func getInt32(columnIndex:Int) -> Int32 {
+    open func getInt32(_ columnIndex:Int) -> Int32 {
         return Int32(truncatingBitPattern: getInt64(columnIndex))
     }
-    public func getUInt32(columnIndex:Int) -> UInt32 {
+    open func getUInt32(_ columnIndex:Int) -> UInt32 {
         return UInt32(truncatingBitPattern: getInt64(columnIndex))
     }
-    public func getBool(columnIndex:Int) -> Bool {
+    open func getBool(_ columnIndex:Int) -> Bool {
         return getInt64(columnIndex) != 0
     }
-    public func getFloat(columnIndex:Int) -> Float {
+    open func getFloat(_ columnIndex:Int) -> Float {
         return Float(sqlite3_column_double(_stmt, CInt(columnIndex)))
     }
-    public func getDouble(columnIndex:Int) -> Double {
+    open func getDouble(_ columnIndex:Int) -> Double {
         return sqlite3_column_double(_stmt, CInt(columnIndex))
     }
-    public func getString(columnIndex:Int) -> String? {
-        let result = sqlite3_column_text(_stmt, CInt(columnIndex))
-        return String.fromCString(UnsafePointer<CChar>(result))
+    open func getString(_ columnIndex:Int) -> String? {
+        guard let result = sqlite3_column_text(_stmt, CInt(columnIndex)) else {
+            return nil
+        }
+        return String(cString: result)
     }
     
-    public func getColumnIndex(columnName: String) -> Int {
-        return _columns.indexOf({ $0 == columnName.lowercaseString }) ?? NSNotFound
+    open func getColumnIndex(_ columnName: String) -> Int {
+        return _columns.index(where: { $0 == columnName.lowercased() }) ?? NSNotFound
     }
     
-    public var columnCount:Int { return _columns.count }
+    open var columnCount:Int { return _columns.count }
 }
 
-public class DBRowSet<T:DBTableType>: DBRowSetBase {
-    private override init(_ stmt: COpaquePointer,_ columns:[String]) {
+open class DBRowSet<T:DBTableType>: DBRowSetBase {
+    fileprivate override init(_ stmt: OpaquePointer,_ columns:[String]) {
         super.init(stmt, columns)
     }
     
     public init <U:DBTableType>(_ rs:DBRowSet<U>) {
-        super.init(rs._stmt, rs._columns)
+        super.init(rs._stmt!, rs._columns)
     }
     
-    public func getColumnIndex(column: T) -> Int {
-        return _columns.indexOf({ $0 == "\(column)".lowercaseString }) ?? NSNotFound
+    open func getColumnIndex(_ column: T) -> Int {
+        return _columns.index(where: { $0 == "\(column)".lowercased() }) ?? NSNotFound
     }
     
     
-    public func getUInt(column: T) -> UInt {
+    open func getUInt(_ column: T) -> UInt {
         return UInt(truncatingBitPattern: getInt64(column))
     }
-    public func getInt(column: T) -> Int {
+    open func getBool(_ column: T) -> Bool {
+        return getInt64(column) != 0
+    }
+    open func getInt(_ column: T) -> Int {
         return Int(truncatingBitPattern: getInt64(column))
     }
-    public func getInt64(column: T) -> Int64 {
-        guard let index = _columns.indexOf({ $0 == "\(column)".lowercaseString }) else {
+    open func getInt64(_ column: T) -> Int64 {
+        guard let index = _columns.index(where: { $0 == "\(column)".lowercased() }) else {
             return 0
         }
         return sqlite3_column_int64(_stmt, CInt(index))
     }
-    public func getDouble(column: T) -> Double {
-        guard let index = _columns.indexOf({ $0 == "\(column)".lowercaseString }) else {
+    open func getDouble(_ column: T) -> Double {
+        guard let index = _columns.index(where: { $0 == "\(column)".lowercased() }) else {
             return 0
         }
         return sqlite3_column_double(_stmt, CInt(index))
     }
-    public func getFloat(column: T) -> Float {
+    open func getFloat(_ column: T) -> Float {
         return Float(getDouble(column))
     }
-    public func getString(column: T) -> String! {
-        guard let index = _columns.indexOf({ $0 == "\(column)".lowercaseString }) else {
+    open func getString(_ column: T) -> String! {
+        guard let index = _columns.index(where: { $0 == "\(column)".lowercased() }) else {
             return nil
         }
-        let result = sqlite3_column_text(_stmt, CInt(index))
-        return String.fromCString(UnsafePointer<CChar>(result))
+        guard let data = sqlite3_column_text(_stmt, CInt(index)) else {
+            return nil
+        }
+        return String(cString: data)
     }
-    public func getData(column: T) -> NSData! {
-        guard let index = _columns.indexOf({ $0 == "\(column)".lowercaseString }) else {
+    open func getData(_ column: T) -> Data! {
+        guard let index = _columns.index(where: { $0 == "\(column)".lowercased() }) else {
             return nil
         }
-        let data:UnsafePointer<Void> = sqlite3_column_blob(_stmt, CInt(index))
+        let data:UnsafeRawPointer = sqlite3_column_blob(_stmt, CInt(index))
         let size:CInt = sqlite3_column_bytes(_stmt, CInt(index))
-        return NSData(bytes:data, length: Int(size))
+        return Data(bytes: data, count: Int(size))
     }
-    public func getDate(column: T) -> NSDate! {
-        guard let index = _columns.indexOf({ $0 == "\(column)".lowercaseString }) else {
+    open func getDate(_ column: T) -> Date! {
+        guard let index = _columns.index(where: { $0 == "\(column)".lowercased() }) else {
             return nil
         }
         let columnType = sqlite3_column_type(_stmt, CInt(index))
@@ -299,14 +309,13 @@ public class DBRowSet<T:DBTableType>: DBRowSetBase {
             fallthrough
         case SQLITE_FLOAT:
             let time = sqlite3_column_double(_stmt, CInt(index))
-            return NSDate(timeIntervalSince1970: time)
+            return Date(timeIntervalSince1970: time)
         case SQLITE_TEXT:
-            let result = UnsafePointer<CChar>(sqlite3_column_text(_stmt, CInt(index)))
-            let date = String.fromCString(result)
-            let formater = NSDateFormatter()
+            let date = String(cString: sqlite3_column_text(_stmt, CInt(index)))
+            let formater = DateFormatter()
             formater.dateFormat = "yyyy-MM-dd HH:mm:ss"
             //formater.calendar = NSCalendar.currentCalendar()
-            return formater.dateFromString(date!)
+            return formater.date(from: date)
         default:
             return nil
         }
@@ -317,25 +326,26 @@ public class DBRowSet<T:DBTableType>: DBRowSetBase {
 
 
 
-public class DBBindSet<T:DBTableType> {
+open class DBBindSet<T:DBTableType> {
     
-    private var _stmt:COpaquePointer
-    private var _columns:[T]
-    init(_ stmt: COpaquePointer,_ columns:[T]) {
+    fileprivate var _stmt:OpaquePointer
+    fileprivate var _columns:[T]
+    init(_ stmt: OpaquePointer,_ columns:[T]) {
         _stmt = stmt
         _columns = columns
     }
     
-    public var bindCount:CInt {
+    open var bindCount:CInt {
         return sqlite3_bind_parameter_count(_stmt)
     }
     
-    public func bindClear() -> CInt {
+    @discardableResult
+    open func bindClear() -> CInt {
         return sqlite3_clear_bindings(_stmt)
     }
     
-    public func bindValue<U>(value:U?, column:T) throws {
-        if let index = _columns.indexOf(column) {
+    open func bindValue<U>(_ value:U?, column:T) throws {
+        if let index = _columns.index(of: column) {
             if value == nil && column.option.contains(.NotNull) {
                 print("\(column) 不能为Null, 可能导致绑定失败")
             }
@@ -346,7 +356,7 @@ public class DBBindSet<T:DBTableType> {
         }
     }
     // 泛型绑定
-    public func bindValue<U>(columnValue:U?, index:Int) throws {
+    open func bindValue<U>(_ columnValue:U?, index:Int) throws {
         
         var flag:CInt = SQLITE_ROW
         if let v = columnValue {
@@ -356,8 +366,8 @@ public class DBBindSet<T:DBTableType> {
             case _ as DataBaseNull:
                 flag = sqlite3_bind_null(_stmt,CInt(index))
             case let value as String:
-                let string:NSString = value
-                flag = sqlite3_bind_text(_stmt,CInt(index),string.UTF8String,-1,nil)
+                let string:NSString = value as NSString
+                flag = sqlite3_bind_text(_stmt,CInt(index),string.utf8String,-1,nil)
             case let value as Int:
                 flag = sqlite3_bind_int64(_stmt,CInt(index),CLongLong(value))
             case let value as UInt:
@@ -382,23 +392,24 @@ public class DBBindSet<T:DBTableType> {
                 flag = sqlite3_bind_double(_stmt,CInt(index),CDouble(value))
             case let value as Double:
                 flag = sqlite3_bind_double(_stmt,CInt(index),CDouble(value))
-            case let value as NSDate:
+            case let value as Date:
                 flag = sqlite3_bind_double(_stmt,CInt(index),CDouble(value.timeIntervalSince1970))
                 //            case let value as Date:
             //                return sqlite3_bind_double(_stmt,CInt(index),CDouble(value.timeIntervalSince1970))
-            case let value as NSData:
-                flag = sqlite3_bind_blob(_stmt,CInt(index),value.bytes,-1,nil)
+            case let value as Data:
+                flag = sqlite3_bind_blob(_stmt,CInt(index),(value as NSData).bytes,-1,nil)
             default:
-                let mirror = _reflect(v)
-                if mirror.disposition == .Optional {
-                    if mirror.count == 0 {
+                let mirror = Mirror(reflecting: v)
+                if mirror.displayStyle == .optional {
+                    let children = mirror.children
+                    if children.count == 0 {
                         flag = sqlite3_bind_null(_stmt,CInt(index))
                     } else {
-                        try bindValue(mirror[0].1.value, index: index)
+                        try bindValue(children[children.startIndex].value, index: index)
                     }
                 } else {
-                    let string:NSString = "\(v)"
-                    flag = sqlite3_bind_text(_stmt,CInt(index),string.UTF8String,-1,nil)
+                    let string:NSString = "\(v)" as NSString
+                    flag = sqlite3_bind_text(_stmt,CInt(index),string.utf8String,-1,nil)
                 }
             }
         } else {
@@ -411,15 +422,15 @@ public class DBBindSet<T:DBTableType> {
 }
 
 // MARK: - 数据库操作句柄
-public class DBHandle {
-    private var _handle:COpaquePointer
-    internal init (_ handle:COpaquePointer) { _handle = handle }
+open class DBHandle {
+    fileprivate var _handle:OpaquePointer?
+    internal init (_ handle:OpaquePointer!) { _handle = handle }
     
     deinit { if _handle != nil { sqlite3_close(_handle) } }
     
     var version:Int {
         get {
-            var stmt:COpaquePointer = nil
+            var stmt:OpaquePointer? = nil
             if SQLITE_OK == sqlite3_prepare_v2(_handle, "PRAGMA user_version", -1, &stmt, nil) {
                 defer { sqlite3_finalize(stmt) }
                 return SQLITE_ROW == sqlite3_step(stmt) ? Int(sqlite3_column_int(stmt, 0)) : 0
@@ -429,38 +440,38 @@ public class DBHandle {
         set { sqlite3_exec(_handle, "PRAGMA user_version = \(newValue)", nil, nil, nil) }
     }
     
-    public var lastError:DBError {
+    open var lastError:DBError {
         let errorCode = sqlite3_errcode(_handle)
-        let errorDescription = String.fromCString(sqlite3_errmsg(_handle)) ?? ""
+        let errorDescription = String(cString: sqlite3_errmsg(_handle))
         return DBError(domain: errorDescription, code: Int(errorCode), userInfo: nil)
     }
-    private var _lastSQL:String?
-    public var lastSQL:String { return _lastSQL ?? "" }
+    fileprivate var _lastSQL:String?
+    open var lastSQL:String { return _lastSQL ?? "" }
     
     // MARK: 执行SQL
-    public func exec(sql:String) throws {
+    open func exec(_ sql:String) throws {
         _lastSQL = sql
         let flag = sqlite3_exec(_handle, sql, nil, nil, nil)
         if flag != SQLITE_OK { throw lastError }
     }
-    public func exec(sql:SQLBase) throws {
+    open func exec(_ sql:SQLBase) throws {
         try exec(sql.description)
     }
     
-    private func query(sql:String) throws -> COpaquePointer {
-        var stmt:COpaquePointer = nil
+    fileprivate func query(_ sql:String) throws -> OpaquePointer {
+        var stmt:OpaquePointer? = nil
         _lastSQL = sql
         if SQLITE_OK != sqlite3_prepare_v2(_handle, sql, -1, &stmt, nil) {
             sqlite3_finalize(stmt)
             throw lastError
         }
-        return stmt //DBRowSet(stmt)
+        return stmt! //DBRowSet(stmt)
     }
     
-    public var lastErrorMessage:String {
-        return String.fromCString(sqlite3_errmsg(_handle)) ?? ""
+    open var lastErrorMessage:String {
+        return String(cString: sqlite3_errmsg(_handle))
     }
-    public var lastInsertRowID:Int64 {
+    open var lastInsertRowID:Int64 {
         return sqlite3_last_insert_rowid(_handle)
     }
     
@@ -470,19 +481,19 @@ public class DBHandle {
 // MARK: - base execute sql function
 extension DBHandle {
     // 单表查询
-    public func query<T:DBTableType>(sql:SQL<T>) throws -> DBResultSet<T> {
+    public func query<T:DBTableType>(_ sql:SQL<T>) throws -> DBResultSet<T> {
         return DBResultSet<T>(try query(sql.description))
     }
     
     // 双表查询
-    public func query<T1:DBTableType, T2:DBTableType>(sql:SQL2<T1, T2>) throws -> DBResultSet<T1> {
+    public func query<T1:DBTableType, T2:DBTableType>(_ sql:SQL2<T1, T2>) throws -> DBResultSet<T1> {
         return DBResultSet<T1>(try query(sql.description))
     }
     
     // 清空表
     public func truncateTable<T:DBTableType>(_:T.Type) throws {
-        try exec(DELETE.FROM(T))
-        try exec(UPDATE(SQLiteSequence).SET[.seq == 0].WHERE(.name == T.table_name))
+        try exec(DELETE.FROM(T.self))
+        try exec(UPDATE(SQLiteSequence.self).SET[.seq == 0].WHERE(.name == T.table_name))
     }
     
     // 创建表
@@ -492,7 +503,7 @@ extension DBHandle {
     public func createTableIfNotExists<T:DBTableType>(_:T.Type) {
         try! createTable(T.self, otherSQL:" IF NOT EXISTS")
     }
-    private func createTable<T:DBTableType>(_:T.Type, otherSQL:String) throws {
+    fileprivate func createTable<T:DBTableType>(_:T.Type, otherSQL:String) throws {
         var columns:[T] = []
         var primaryKeys:[T] = []
         for column in T.enumerate() where !column.option.contains(.DeletedKey) {
@@ -502,11 +513,11 @@ extension DBHandle {
             columns.append(column)
         }
         
-        var params:String = columns.map({ "\($0) \($0.type)\($0.option.descriptionBy(primaryKeys.count > 1))" }).joinWithSeparator(", ")
+        var params:String = columns.map({ "\($0) \($0.type)\($0.option.descriptionBy(primaryKeys.count > 1))" }).joined(separator: ", ")
         
         if primaryKeys.count > 1 {
-            let keys = primaryKeys.map({ "\($0)" }).joinWithSeparator(", ")
-            params.appendContentsOf(", PRIMARY KEY (\(keys))")
+            let keys = primaryKeys.map({ "\($0)" }).joined(separator: ", ")
+            params.append(", PRIMARY KEY (\(keys))")
         }
         
         try exec("CREATE TABLE\(otherSQL) \(T.table_name) (\(params))")
@@ -516,14 +527,17 @@ extension DBHandle {
 // MARK: - transaction 事务
 extension DBHandle {
     // MARK: 开启事务 BEGIN TRANSACTION
+    @discardableResult
     func beginTransaction() -> CInt {
         return sqlite3_exec(_handle,"BEGIN TRANSACTION",nil,nil,nil)
     }
     // MARK: 提交事务 COMMIT TRANSACTION
+    @discardableResult
     func commitTransaction() -> CInt {
         return sqlite3_exec(_handle,"COMMIT TRANSACTION",nil,nil,nil)
     }
     // MARK: 回滚事务 ROLLBACK TRANSACTION
+    @discardableResult
     func rollbackTransaction() -> CInt {
         return sqlite3_exec(_handle,"ROLLBACK TRANSACTION",nil,nil,nil)
     }
@@ -539,27 +553,30 @@ public struct DataBaseNotNull: DBNullType {
 }
 
 // MARK: - 过滤 Any 类型中的字符串 与 nil
-private func filterSQLAny(rhs:Any) -> String {
+private func filterSQLAny(_ rhs:Any) -> String {
     
     var v = rhs
-    let mirror = _reflect(v)
-    if mirror.disposition == .Optional {
-        if mirror.count == 0 { return "NULL" }
-        v = mirror[0].1.value
+    let mirror = Mirror(reflecting: v)
+    //let mirror = _reflect(v)
+    if mirror.displayStyle == .optional {
+        let children = mirror.children
+        if children.count == 0 { return "NULL" }
+        v = children[children.startIndex].value
+        //v = mirror.children[0].1.value
     }
     switch v {
     case _ as NSNull:           return "NULL"
     case _ as DataBaseNull:     return "NULL"
     case let value as String:   return "'\(value)'"
-    case let value as NSDate:   return "\(value.timeIntervalSince1970)"
+    case let value as Date:   return "\(value.timeIntervalSince1970)"
     default:                    return "\(v)"
     }
 }
 
 // MARK: - SQL构造器
-public class DBSQLHandle {
-    private var sql: [String] = []
-    private func addCondition(condition:String, funcName:String = #function) {
+open class DBSQLHandle {
+    fileprivate var sql: [String] = []
+    fileprivate func addCondition(_ condition:String, funcName:String = #function) {
         sql.append(funcName)
         sql.append(condition)
     }
@@ -569,23 +586,23 @@ private protocol DBSQLHandleType {
     init(_ handle:DBSQLHandle?)
 }
 
-public class SQLBase: DBSQLHandleType, CustomStringConvertible {
+open class SQLBase: DBSQLHandleType, CustomStringConvertible {
     
-    private var _handle:DBSQLHandle
+    fileprivate var _handle:DBSQLHandle
     public required init(_ handle:DBSQLHandle? = nil) {
         _handle = handle ?? DBSQLHandle()
     }
     
-    public var description: String {
-        return _handle.sql.joinWithSeparator(" ")
+    open var description: String {
+        return _handle.sql.joined(separator: " ")
     }
 }
 
 
 // MARK: - 条件泛型传递
-public class DBCondition<S:SQLBase, T1:DBTableType, T2:DBTableType>: CustomStringConvertible, CustomDebugStringConvertible {
-    public let description: String
-    private var column:T1
+open class DBCondition<S:SQLBase, T1:DBTableType, T2:DBTableType>: CustomStringConvertible, CustomDebugStringConvertible {
+    open let description: String
+    fileprivate var column:T1
     init(_ column1:T1, _ condition:String, _ column2:T2) {
         column = column1
         description = "\(column1)\(condition)\(T2.table_name).\(column2)"
@@ -598,14 +615,12 @@ public class DBCondition<S:SQLBase, T1:DBTableType, T2:DBTableType>: CustomStrin
         column = lhs.column
         description = "\(lhs)\(condition)"
     }
-    public var debugDescription: String { return "\(T1.table_name).\(description)" }
+    open var debugDescription: String { return "\(T1.table_name).\(description)" }
 }
 // MARK: - 扩展条件运算符
 /// SQL 中的不等于
-infix operator <> {
-associativity none
-precedence 130
-}
+infix operator <>: ComparisonPrecedence //后面是优先级组
+
 public func <> <S:SQLBase, T:DBTableType>(lhs: T, rhs: Any) -> DBCondition<S,T,T> {
     let text = filterSQLAny(rhs)
     if S.self != SQLSet<T>.self && text == "NULL" {
@@ -745,45 +760,45 @@ public func ^  <S:SQLBase, T1:DBTableType,T2:DBTableType>(lhs: DBCondition<S,T1,
     return DBCondition<S,T1,T2>(lhs, "^\(filterSQLAny(rhs))")
 }
 
-public class SQLWhere<T:DBTableType>: SQLBase {
+open class SQLWhere<T:DBTableType>: SQLBase {
     //public typealias Table = T
     
     public required init(_ handle:DBSQLHandle? = nil) { super.init(handle) }
     
     // MARK: where
-    public func WHERE(column:T) -> Self {
+    open func WHERE(_ column:T) -> Self {
         _handle.addCondition("\(column)")
         return self
     }
-    public func WHERE(@autoclosure condition:() -> DBCondition<SQLWhere,T,T>) -> Self {
+    open func WHERE(_ condition:@autoclosure () -> DBCondition<SQLWhere,T,T>) -> Self {
         _handle.addCondition(condition().description)
         return self
     }
-    public var DESC:SQLWhere<T> {
+    open var DESC:SQLWhere<T> {
         _handle.sql.append("DESC")
         return self
     }
-    public func ORDER(BY text:String) -> Self {
+    open func ORDER(BY text:String) -> Self {
         _handle.sql.append("ORDER BY \(text)")
         return self
     }
-    public func ORDER(BY columns:T...) -> Self {
-        _handle.sql.append("ORDER BY " + columns.map({ "\($0)" }).joinWithSeparator(", "))
+    open func ORDER(BY columns:T...) -> Self {
+        _handle.sql.append("ORDER BY " + columns.map({ "\($0)" }).joined(separator: ", "))
         return self
     }
-    public func GROUP(BY columns:T...) -> Self {
-        _handle.sql.append("GROUP BY " + columns.map({ "\($0)" }).joinWithSeparator(", "))
+    open func GROUP(BY columns:T...) -> Self {
+        _handle.sql.append("GROUP BY " + columns.map({ "\($0)" }).joined(separator: ", "))
         return self
     }
-    public func LIMIT(value:Int) -> Self {
+    open func LIMIT(_ value:Int) -> Self {
         _handle.addCondition("\(value)")
         return self
     }
-    public func LIKE(pattern:String) -> Self {
+    open func LIKE(_ pattern:String) -> Self {
         _handle.addCondition("'\(pattern)'")
         return self
     }
-    public func BETWEEN(value1:Any, AND value2:Any) -> Self {
+    open func BETWEEN(_ value1:Any, AND value2:Any) -> Self {
         _handle.sql.append("BETWEEN")
         _handle.sql.append(filterSQLAny(value1))
         _handle.sql.append("AND")
@@ -791,31 +806,31 @@ public class SQLWhere<T:DBTableType>: SQLBase {
         return self
     }
     
-    public func IS<N:DBNullType>(nullValue:N) -> Self {
+    open func IS<N:DBNullType>(_ nullValue:N) -> Self {
         _handle.addCondition(nullValue.description)
         return self
     }
-    public func AND(column:T) -> Self {
+    open func AND(_ column:T) -> Self {
         _handle.addCondition("\(column)")
         return self
     }
-    public func AND(@autoclosure condition:() -> DBCondition<SQLWhere,T,T>) -> Self {
+    open func AND(_ condition:@autoclosure () -> DBCondition<SQLWhere,T,T>) -> Self {
         _handle.addCondition(condition().description)
         return self
     }
-    public func OR(column:T) -> Self {
+    open func OR(_ column:T) -> Self {
         _handle.addCondition("\(column)")
         return self
     }
-    public func OR(@autoclosure condition:() -> DBCondition<SQLWhere,T,T>) -> Self {
+    open func OR(_ condition:@autoclosure () -> DBCondition<SQLWhere,T,T>) -> Self {
         _handle.addCondition(condition().description)
         return self
     }
-    public func XOR(column:T) -> Self {
+    open func XOR(_ column:T) -> Self {
         _handle.addCondition("\(column)")
         return self
     }
-    public func XOR(@autoclosure condition:() -> DBCondition<SQLWhere,T,T>) -> Self {
+    open func XOR(_ condition:@autoclosure () -> DBCondition<SQLWhere,T,T>) -> Self {
         _handle.addCondition(condition().description)
         return self
     }
@@ -833,63 +848,63 @@ public class SQLWhere<T:DBTableType>: SQLBase {
 //    }
 }
 
-public class SQLBegan: SQLBase {
+open class SQLBegan: SQLBase {
     
     public required init(_ handle: DBSQLHandle? = nil) {
         super.init(handle)
     }
     
-    private init(_ base:String) {
+    fileprivate init(_ base:String) {
         super.init(DBSQLHandle())
         _handle.sql.append(base)
     }
     
-    public func INTO<Table:DBTableType>(_:Table.Type) -> SQLInsert<Table> {
+    open func INTO<Table:DBTableType>(_:Table.Type) -> SQLInsert<Table> {
         _handle.addCondition(Table.table_name)
         return SQLInsert<Table>(_handle)
     }
     
-    public func TABLE<Table:DBTableType>(_:Table.Type) -> SQL<Table> {
+    open func TABLE<Table:DBTableType>(_:Table.Type) -> SQL<Table> {
         _handle.addCondition(Table.table_name)
         return SQL<Table>(_handle)
     }
-    public func TABLE(oldTableName:String) -> Self {
+    open func TABLE(_ oldTableName:String) -> Self {
         _handle.addCondition(oldTableName)
         return self
     }
-    public var RENAME:SQLBegan {
+    open var RENAME:SQLBegan {
         _handle.sql.append("RENAME")
         return self
     }
-    public func TO<Table:DBTableType>(_:Table.Type) -> SQL<Table> {
+    open func TO<Table:DBTableType>(_:Table.Type) -> SQL<Table> {
         _handle.addCondition(Table.table_name)
         return SQL<Table>(_handle)
     }
     
-    public func FROM<Table:DBTableType>(_:Table.Type) -> SQL<Table> {
+    open func FROM<Table:DBTableType>(_:Table.Type) -> SQL<Table> {
         _handle.addCondition(Table.table_name)
         return SQL<Table>(_handle)
     }
     
-    public func FROM<T1:DBTableType, T2:DBTableType>(_:T1.Type,_:T2.Type) -> SQL2<T1,T2> {
+    open func FROM<T1:DBTableType, T2:DBTableType>(_:T1.Type,_:T2.Type) -> SQL2<T1,T2> {
         _handle.sql.append("FROM \(T1.table_name), \(T2.table_name)")
         return SQL2<T1,T2>(_handle)
     }
     
-    public func COUNT(@noescape columns:(SQLBegan,SQLBegan)->SQLBegan) -> SQLBegan {
+    open func COUNT(_ columns: (SQLBegan,SQLBegan)->SQLBegan) -> SQLBegan {
         _handle.sql.append("COUNT(")
         return columns(self, SQLBegan(")"))
     }
     
-    public var OR:SQLBegan {
+    open var OR:SQLBegan {
         _handle.sql.append("OR")
         return self
     }
-    public var REPLACE:SQLBegan {
+    open var REPLACE:SQLBegan {
         _handle.sql.append("REPLACE")
         return self
     }
-    public var IGNORE:SQLBegan {
+    open var IGNORE:SQLBegan {
         _handle.sql.append("REPLACE")
         return self
     }
@@ -898,17 +913,17 @@ public class SQLBegan: SQLBase {
 //        return self
 //    }
     
-    public func IN<I:CollectionType>(params:I) -> Self {
+    open func IN<I:Collection>(_ params:I) -> Self {
         var set = Set<String>()
         params.forEach { set.insert( "\($0)" ) }
-        let text = set.joinWithSeparator(", ")
+        let text = set.joined(separator: ", ")
         _handle.sql.append("IN(\(text))")
         return self
     }
 }
 
 
-public class SQL<T:DBTableType>:SQLWhere<T> {
+open class SQL<T:DBTableType>:SQLWhere<T> {
     public typealias Table = T
     
     public required init(_ handle:DBSQLHandle? = nil) { super.init(handle) }
@@ -918,121 +933,122 @@ public class SQL<T:DBTableType>:SQLWhere<T> {
     }
     
     // MARK: from
-    public func FROM(_:T.Type) -> Self {
+    open func FROM(_:T.Type) -> Self {
         _handle.addCondition(T.table_name)
         return self
     }
     
     // MARK: set
-    public var SET:SQLSet<T> {
+    open var SET:SQLSet<T> {
         _handle.sql.append("SET")
         return SQLSet<T>(_handle)
     }
     
     // MARK: select
-    public func COUNT(columns:T...) -> Self {
-        _handle.sql.append("COUNT(" + columns.map({ "\($0)" }).joinWithSeparator(", ") + ")")
+    open func COUNT(_ columns:T...) -> Self {
+        _handle.sql.append("COUNT(" + columns.map({ "\($0)" }).joined(separator: ", ") + ")")
         return self
     }
-    public func SELECT(columns:T...) -> Self {
-        _handle.sql.append("SELECT " + columns.map({ "\($0)" }).joinWithSeparator(", "))
+    open func SELECT(_ columns:T...) -> Self {
+        _handle.sql.append("SELECT " + columns.map({ "\($0)" }).joined(separator: ", "))
         return self
     }
-    public func SELECT(DISTINCT columns:T...) -> Self {
-        _handle.sql.append("SELECT DISTINCT " + columns.map({ "\($0)" }).joinWithSeparator(", "))
+    open func SELECT(DISTINCT columns:T...) -> Self {
+        _handle.sql.append("SELECT DISTINCT " + columns.map({ "\($0)" }).joined(separator: ", "))
         return self
     }
-    public func SELECT(TOP value:Int,_ columns:T...) -> Self {
-        _handle.sql.append("SELECT TOP \(value) " + columns.map({ "\($0)" }).joinWithSeparator(", "))
+    open func SELECT(TOP value:Int,_ columns:T...) -> Self {
+        _handle.sql.append("SELECT TOP \(value) " + columns.map({ "\($0)" }).joined(separator: ", "))
         return self
     }
-    public var SELECT:SQL {
+    open var SELECT:SQL {
         _handle.sql.append("SELECT")
         return self
     }
     
     // MARK: join
-    public var LEFT:SQL {
+    open var LEFT:SQL {
         _handle.sql.append("LEFT")
         return self
     }
-    public var RIGHT:SQL {
+    open var RIGHT:SQL {
         _handle.sql.append("RIGHT")
         return self
     }
-    public func JOIN<Table:DBTableType>(_:Table.Type) -> SQL2<T,Table> {
+    open func JOIN<Table:DBTableType>(_:Table.Type) -> SQL2<T,Table> {
         _handle.addCondition(Table.table_name)
         return SQL2<T,Table>(_handle)
     }
     
     // MARK: alter
-    public var RENAME:SQL {
+    open var RENAME:SQL {
         _handle.sql.append("RENAME")
         return self
     }
-    public func TO(_:T.Type) -> Self {
+    open func TO(_:T.Type) -> Self {
         _handle.addCondition(T.table_name)
         return self
     }
-    public func TO(column:T) -> Self {
+    open func TO(_ column:T) -> Self {
         _handle.addCondition("\(column)")
         return self
     }
-    public func COLUMN(oldColumnName:String) -> Self {
+    open func COLUMN(_ oldColumnName:String) -> Self {
         _handle.addCondition(oldColumnName)
         return self
     }
-    public func COLUMN(column:T) -> Self {
+    open func COLUMN(_ column:T) -> Self {
         _handle.addCondition("\(column)")
         return self
     }
-    public var DROP:SQL {
+    open var DROP:SQL {
         _handle.sql.append("DROP")
         return self
     }
-    public func MODIFY(column:T,_ columnType:DataBaseColumnType) -> Self {
+    open func MODIFY(_ column:T,_ columnType:DataBaseColumnType) -> Self {
         _handle.sql.append("MODIFY \(column) \(columnType)")
         return self
     }
-    public func ADD(column:T,_ columnType:DataBaseColumnType) -> Self {
+    open func ADD(_ column:T,_ columnType:DataBaseColumnType) -> Self {
         _handle.sql.append("ADD \(column) \(columnType)")
         return self
     }
     
     // MARK: where
-    public override func WHERE(column:T) -> Self {
+    open override func WHERE(_ column:T) -> Self {
         _handle.addCondition("\(column)")
         return self
     }
-    public override func WHERE(@autoclosure condition:() -> DBCondition<SQLWhere<T>,T,T>) -> Self {
+    open override func WHERE(_ condition:@autoclosure () -> DBCondition<SQLWhere<T>,T,T>) -> Self {
         _handle.addCondition(condition().description)
         return self
     }
-    public override var DESC:SQL<T> {
+    open override var DESC:SQL<T> {
         _handle.sql.append("DESC")
         return self
     }
-    public override func ORDER(BY text:String) -> Self {
+    open override func ORDER(BY text:String) -> Self {
         _handle.sql.append("ORDER BY \(text)")
         return self
     }
-    public override func ORDER(BY columns:T...) -> Self {
-        _handle.sql.append("ORDER BY " + columns.map({ "\($0)" }).joinWithSeparator(", "))
+    open override func ORDER(BY columns:T...) -> Self {
+        _handle.sql.append("ORDER BY " + columns.map({ "\($0)" }).joined(separator: ", "))
         return self
     }
-    public override func GROUP(BY columns:T...) -> Self {
-        _handle.sql.append("GROUP BY " + columns.map({ "\($0)" }).joinWithSeparator(", "))
+    open override func GROUP(BY columns:T...) -> Self {
+        _handle.sql.append("GROUP BY " + columns.map({ "\($0)" }).joined(separator: ", "))
         return self
     }
-    public override func LIMIT(value:Int) -> Self {
+    
+    open override func LIMIT(_ value:Int) -> Self {
         _handle.addCondition("\(value)")
         return self
     }
-    public override func LIKE(pattern:String) -> Self {
+    open override func LIKE(_ pattern:String) -> Self {
         _handle.addCondition("'\(pattern)'")
         return self
     }
-    public override func BETWEEN(value1:Any, AND value2:Any) -> Self {
+    open override func BETWEEN(_ value1:Any, AND value2:Any) -> Self {
         _handle.sql.append("BETWEEN")
         _handle.sql.append(filterSQLAny(value1))
         _handle.sql.append("AND")
@@ -1040,42 +1056,42 @@ public class SQL<T:DBTableType>:SQLWhere<T> {
         return self
     }
     
-    public override func IS<N:DBNullType>(nullValue:N) -> Self {
+    open override func IS<N:DBNullType>(_ nullValue:N) -> Self {
         _handle.addCondition(nullValue.description)
         return self
     }
-    public override func AND(column:T) -> Self {
+    open override func AND(_ column:T) -> Self {
         _handle.addCondition("\(column)")
         return self
     }
-    public override func AND(@autoclosure condition:() -> DBCondition<SQLWhere<T>,T,T>) -> Self {
+    open override func AND(_ condition:@autoclosure () -> DBCondition<SQLWhere<T>,T,T>) -> Self {
         _handle.addCondition(condition().description)
         return self
     }
-    public override func OR(column:T) -> Self {
+    open override func OR(_ column:T) -> Self {
         _handle.addCondition("\(column)")
         return self
     }
-    public override func OR(@autoclosure condition:() -> DBCondition<SQLWhere<T>,T,T>) -> Self {
+    open override func OR(_ condition:@autoclosure () -> DBCondition<SQLWhere<T>,T,T>) -> Self {
         _handle.addCondition(condition().description)
         return self
     }
-    public override func XOR(column:T) -> Self {
+    open override func XOR(_ column:T) -> Self {
         _handle.addCondition("\(column)")
         return self
     }
-    public override func XOR(@autoclosure condition:() -> DBCondition<SQLWhere<T>,T,T>) -> Self {
+    open override func XOR(_ condition:@autoclosure () -> DBCondition<SQLWhere<T>,T,T>) -> Self {
         _handle.addCondition(condition().description)
         return self
     }
-    public func IN(sql: SQLBase) -> SQL<T> {
+    open func IN(_ sql: SQLBase) -> SQL<T> {
         _handle.sql.append("IN(\(sql.description))")
         return self
     }
-    public func IN<I:CollectionType>(params:I) -> Self {
+    open func IN<I:Collection>(_ params:I) -> Self {
         var set = Set<String>()
         params.forEach { set.insert( "\($0)" ) }
-        let text = set.joinWithSeparator(", ")
+        let text = set.joined(separator: ", ")
         _handle.sql.append("IN(\(text))")
         return self
     }
@@ -1141,13 +1157,13 @@ public class SQL<T:DBTableType>:SQLWhere<T> {
 
 
 
-public class SQLSet<T:DBTableType>: SQLWhere<T> {
+open class SQLSet<T:DBTableType>: SQLWhere<T> {
     
     public required init(_ handle:DBSQLHandle?) {
         super.init(handle)
     }
     
-    public subscript(column:T) -> SQLSet<T> {
+    open subscript(column:T) -> SQLSet<T> {
         if _handle.sql.last != "SET" {
             _handle.sql.append(",")
         }
@@ -1155,7 +1171,7 @@ public class SQLSet<T:DBTableType>: SQLWhere<T> {
         return self
     }
     
-    public subscript(@autoclosure condition:() -> DBCondition<SQLSet,T,T>) -> SQLSet<T> {
+    open subscript(condition:@autoclosure () -> DBCondition<SQLSet,T,T>) -> SQLSet<T> {
         if _handle.sql.last != "SET" {
             _handle.sql.append(",")
         }
@@ -1165,33 +1181,33 @@ public class SQLSet<T:DBTableType>: SQLWhere<T> {
 }
 
 
-public class SQLInsert<T:DBTableType>: DBSQLHandleType {
-    private var _handle:DBSQLHandle
-    private var columns:[T] = []
+open class SQLInsert<T:DBTableType>: DBSQLHandleType {
+    fileprivate var _handle:DBSQLHandle
+    fileprivate var columns:[T] = []
     public required init(_ handle:DBSQLHandle?) {
         _handle = handle ?? DBSQLHandle()
     }
     
     
-    public func SELECT<Table:DBTableType>(columns:Table...) -> SQL<Table> {
-        let text = columns.map({ "\($0)" }).joinWithSeparator(", ")
+    open func SELECT<Table:DBTableType>(_ columns:Table...) -> SQL<Table> {
+        let text = columns.map({ "\($0)" }).joined(separator: ", ")
         _handle.addCondition(text)
         return SQL<Table>(_handle)
     }
     
-    public subscript(columns:T...) -> SQLInsert<T> {
-        let text = columns.map({ "\($0)" }).joinWithSeparator(", ")
+    open subscript(columns:T...) -> SQLInsert<T> {
+        let text = columns.map({ "\($0)" }).joined(separator: ", ")
         _handle.sql.append("(\(text))")
         self.columns = columns
         return self
     }
     
-    public func VALUES(params:Any...) -> SQL<T> {
-        let text = params.map({ filterSQLAny($0) }).joinWithSeparator(", ")
+    open func VALUES(_ params:Any...) -> SQL<T> {
+        let text = params.map({ filterSQLAny($0) }).joined(separator: ", ")
         _handle.sql.append("VALUES(\(text))")
         return SQL<T>(_handle)
     }
-    public func VALUES<U>(values:[U], into db:DBHandle, binds:(id:Int, value:U, bindSet:DBBindSet<T>) throws -> () ) throws {
+    open func VALUES<U>(_ values:[U], into db:DBHandle, binds:(_ id:Int64, _ value:U, _ bindSet:DBBindSet<T>) throws -> () ) throws {
         if values.count == 0 {  return  }
         // 如果列字段为 * 则 遍历此表所有列
         if columns.isEmpty {
@@ -1199,11 +1215,11 @@ public class SQLInsert<T:DBTableType>: DBSQLHandleType {
                 columns.append(column)
             }
         }
-        let texts = [String](count: columns.count, repeatedValue: "?").joinWithSeparator(", ")
+        let texts = [String](repeating: "?", count: columns.count).joined(separator: ", ")
         _handle.sql.append("VALUES(\(texts))")
         // TODO: 批量插入
         //print(_handle.sql.joinWithSeparator(" "))
-        let stmt = try db.query(_handle.sql.joinWithSeparator(" "))
+        let stmt = try db.query(_handle.sql.joined(separator: " "))
         //print(db.lastSQL)
         // 方法完成后释放 数据操作句柄
         //defer { sqlite3_finalize(stmt);print("释放插入句柄") }
@@ -1224,7 +1240,7 @@ public class SQLInsert<T:DBTableType>: DBSQLHandleType {
         db.rollbackTransaction()
         if flag == SQLITE_CONSTRAINT {
             // 不符合字段约束
-            throw NSError(domain: "Abort due to constraint violation", code: Int(flag), userInfo: ["sql":_handle.sql.joinWithSeparator(" ")])
+            throw NSError(domain: "Abort due to constraint violation", code: Int(flag), userInfo: ["sql":_handle.sql.joined(separator: " ")])
         }
         sqlite3_reset(stmt)
         db.beginTransaction()
@@ -1232,7 +1248,7 @@ public class SQLInsert<T:DBTableType>: DBSQLHandleType {
         // 插入数据
         for value in values {
             // 推测本条数据插入ID为最后一条插入数据的ID + 1
-            try binds(id: Int(truncatingBitPattern: lastInsertID), value: value, bindSet: bindSet)
+            try binds(lastInsertID, value, bindSet)
             flag = sqlite3_step(stmt)
             if flag != SQLITE_OK && flag != SQLITE_DONE {
                 #if DEBUG
@@ -1259,34 +1275,34 @@ public class SQLInsert<T:DBTableType>: DBSQLHandleType {
     }
 }
 
-public class SQL2<T1:DBTableType,T2:DBTableType>:SQL<T1> {
+open class SQL2<T1:DBTableType,T2:DBTableType>:SQL<T1> {
     
     public required init(_ handle:DBSQLHandle? = nil) { super.init(handle) }
     
     // MARK: join
-    public func SELECT(columns1:[T1],_ columns2:[T2]) -> Self {
+    open func SELECT(_ columns1:[T1],_ columns2:[T2]) -> Self {
         var text = columns1.reduce("SELECT ") { $0 + "\(T1.table_name).\($1), " }
-        text += columns2.map({ "\(T2.table_name).\($0)" }).joinWithSeparator(", ")
+        text += columns2.map({ "\(T2.table_name).\($0)" }).joined(separator: ", ")
         _handle.sql.append(text)
         return self
     }
     
     // MARK: join
-    public func ON(@autoclosure condition:() -> DBCondition<SQLWhere<T1>,T1,T2>) -> Self {
+    open func ON(_ condition:@autoclosure () -> DBCondition<SQLWhere<T1>,T1,T2>) -> Self {
         _handle.addCondition(condition().debugDescription)
         return self
     }
     
     // MARK: where
-    public override func WHERE(column:T1) -> Self {
+    open override func WHERE(_ column:T1) -> Self {
         _handle.addCondition("\(T1.table_name).\(column)")
         return self
     }
-    public func WHERE(column:T2) -> Self {
+    open func WHERE(_ column:T2) -> Self {
         _handle.addCondition("\(T2.table_name).\(column)")
         return self
     }
-    public func WHERE(@autoclosure condition:() -> DBCondition<SQL2,T1,T2>) -> Self {
+    open func WHERE(_ condition:@autoclosure () -> DBCondition<SQL2,T1,T2>) -> Self {
         _handle.addCondition(condition().debugDescription)
         return self
     }
@@ -1298,60 +1314,60 @@ public class SQL2<T1:DBTableType,T2:DBTableType>:SQL<T1> {
 //        _handle.addCondition(condition().debugDescription)
 //        return self
 //    }
-    public func ORDER(BY columns1:[T1],_ columns2:[T2]) -> Self {
+    open func ORDER(BY columns1:[T1],_ columns2:[T2]) -> Self {
         var text = columns1.reduce("ORDER BY ") { $0 + "\(T1.table_name).\($1), " }
-        text += columns2.map({ "\(T2.table_name).\($0)" }).joinWithSeparator(", ")
+        text += columns2.map({ "\(T2.table_name).\($0)" }).joined(separator: ", ")
         _handle.sql.append(text)
         return self
     }
-    public func ORDER(BY columns:T2...) -> Self {
-        _handle.sql.append("ORDER BY " + columns.map({ "\(T2.table_name).\($0)" }).joinWithSeparator(", "))
+    open func ORDER(BY columns:T2...) -> Self {
+        _handle.sql.append("ORDER BY " + columns.map({ "\(T2.table_name).\($0)" }).joined(separator: ", "))
         return self
     }
-    public override func ORDER(BY columns:T1...) -> Self {
-        _handle.sql.append("ORDER BY " + columns.map({ "\(T1.table_name).\($0)" }).joinWithSeparator(", "))
+    open override func ORDER(BY columns:T1...) -> Self {
+        _handle.sql.append("ORDER BY " + columns.map({ "\(T1.table_name).\($0)" }).joined(separator: ", "))
         return self
     }
-    public func GROUP(BY columns1:[T1],_ columns2:[T2]) -> Self {
+    open func GROUP(BY columns1:[T1],_ columns2:[T2]) -> Self {
         var text = columns1.reduce("GROUP BY ") { $0 + "\(T1.table_name).\($1), " }
-        text += columns2.map({ "\(T2.table_name).\($0)" }).joinWithSeparator(", ")
+        text += columns2.map({ "\(T2.table_name).\($0)" }).joined(separator: ", ")
         _handle.sql.append(text)
         return self
     }
-    public func GROUP(BY columns:T2...) -> Self {
-        _handle.sql.append("GROUP BY " + columns.map({ "\(T2.table_name).\($0)" }).joinWithSeparator(", "))
+    open func GROUP(BY columns:T2...) -> Self {
+        _handle.sql.append("GROUP BY " + columns.map({ "\(T2.table_name).\($0)" }).joined(separator: ", "))
         return self
     }
-    public override func GROUP(BY columns:T1...) -> Self {
-        _handle.sql.append("GROUP BY " + columns.map({ "\(T1.table_name).\($0)" }).joinWithSeparator(", "))
+    open override func GROUP(BY columns:T1...) -> Self {
+        _handle.sql.append("GROUP BY " + columns.map({ "\(T1.table_name).\($0)" }).joined(separator: ", "))
         return self
     }
-    public override func LIMIT(value:Int) -> Self {
-        super.LIMIT(value)
+    open override func LIMIT(_ value:Int) -> Self {
+        _ = super.LIMIT(value)
         return self
     }
-    public override func LIKE(pattern:String) -> Self {
-        super.LIKE(pattern)
+    open override func LIKE(_ pattern:String) -> Self {
+        _ = super.LIKE(pattern)
         return self
     }
-    public override func BETWEEN(value1:Any, AND value2:Any) -> Self {
-        super.BETWEEN(value1, AND: value2)
+    open override func BETWEEN(_ value1:Any, AND value2:Any) -> Self {
+        _ = super.BETWEEN(value1, AND: value2)
         return self
     }
     
-    public override func IS<N:DBNullType>(nullValue:N) -> Self {
-        super.IS(nullValue)
+    open override func IS<N:DBNullType>(_ nullValue:N) -> Self {
+        _ = super.IS(nullValue)
         return self
     }
-    public override func AND(column:T1) -> Self {
+    open override func AND(_ column:T1) -> Self {
         _handle.addCondition("\(T1.table_name).\(column)")
         return self
     }
-    public func AND(column:T2) -> Self {
+    open func AND(_ column:T2) -> Self {
         _handle.addCondition("\(T2.table_name).\(column)")
         return self
     }
-    public func AND(@autoclosure condition:() -> DBCondition<SQL2,T1,T2>) -> Self {
+    open func AND(_ condition:@autoclosure () -> DBCondition<SQL2,T1,T2>) -> Self {
         _handle.addCondition(condition().debugDescription)
         return self
     }
@@ -1363,15 +1379,15 @@ public class SQL2<T1:DBTableType,T2:DBTableType>:SQL<T1> {
 //        _handle.addCondition(condition().debugDescription)
 //        return self
 //    }
-    public override func OR(column:T1) -> Self {
+    open override func OR(_ column:T1) -> Self {
         _handle.addCondition("\(T1.table_name).\(column)")
         return self
     }
-    public func OR(column:T2) -> Self {
+    open func OR(_ column:T2) -> Self {
         _handle.addCondition("\(T2.table_name).\(column)")
         return self
     }
-    public func OR(@autoclosure condition:() -> DBCondition<SQL2,T1,T2>) -> Self {
+    open func OR(_ condition:@autoclosure () -> DBCondition<SQL2,T1,T2>) -> Self {
         _handle.addCondition(condition().debugDescription)
         return self
     }
@@ -1383,15 +1399,15 @@ public class SQL2<T1:DBTableType,T2:DBTableType>:SQL<T1> {
 //        _handle.addCondition(condition().debugDescription)
 //        return self
 //    }
-    public override func XOR(column:T1) -> Self {
+    open override func XOR(_ column:T1) -> Self {
         _handle.addCondition("\(T1.table_name).\(column)")
         return self
     }
-    public func XOR(column:T2) -> Self {
+    open func XOR(_ column:T2) -> Self {
         _handle.addCondition("\(T2.table_name).\(column)")
         return self
     }
-    public func XOR(@autoclosure condition:() -> DBCondition<SQL2,T1,T2>) -> Self {
+    open func XOR(_ condition:@autoclosure () -> DBCondition<SQL2,T1,T2>) -> Self {
         _handle.addCondition(condition().debugDescription)
         return self
     }
@@ -1434,19 +1450,19 @@ public class SQL2<T1:DBTableType,T2:DBTableType>:SQL<T1> {
 // MARK: - 配合 SELECT 语句
 public func *  <T:DBTableType>(lhs:SQLBegan, rhs:SQL<T>) -> SQL<T> {
     lhs._handle.sql.append("*")
-    lhs._handle.sql.appendContentsOf(rhs._handle.sql)
+    lhs._handle.sql.append(contentsOf: rhs._handle.sql)
     rhs._handle = lhs._handle
     return rhs
 }
 public func *  <T:DBTableType>(lhs:SQLBegan, rhs:SQLInsert<T>) -> SQLInsert<T> {
     lhs._handle.sql.append("*")
-    lhs._handle.sql.appendContentsOf(rhs._handle.sql)
+    lhs._handle.sql.append(contentsOf: rhs._handle.sql)
     rhs._handle = lhs._handle
     return rhs
 }
 public func *  (lhs:SQLBegan, rhs:SQLBegan) -> SQLBegan {
     lhs._handle.sql.append("*")
-    lhs._handle.sql.appendContentsOf(rhs._handle.sql)
+    lhs._handle.sql.append(contentsOf: rhs._handle.sql)
     rhs._handle = lhs._handle
     return rhs
 }
@@ -1456,7 +1472,7 @@ public func *  (lhs:SQLBegan, rhs:SQLBegan) -> SQLBegan {
 public let NULL = DataBaseNull()
 public let NOT_NULL = DataBaseNotNull()
 
-public var DB_NOW:NSTimeInterval { return NSDate().timeIntervalSince1970 }
+public var DB_NOW:TimeInterval { return Date().timeIntervalSince1970 }
 public var DELETE:SQLBegan { return SQLBegan("DELETE") }
 public var SELECT:SQLBegan { return SQLBegan("SELECT") }
 public var INSERT:SQLBegan { return SQLBegan("INSERT") }
@@ -1472,7 +1488,7 @@ public func SELECT(TOP value:Int) -> SQLBase {
 }
 
 public func FROM<T:DBTableType>(_:T.Type) -> SQL<T> {
-    return SQLBegan().FROM(T)
+    return SQLBegan().FROM(T.self)
 }
 public func UPDATE<T:DBTableType>(_:T.Type) -> SQL<T> {
     let sql = SQL<T>()
@@ -1488,8 +1504,8 @@ public enum SQLiteSequence:String, DBTableType {
     
     public var type: DataBaseColumnType {
         switch self {
-        case .name: return .Text
-        case .seq : return .Integer
+        case .name: return .text
+        case .seq : return .integer
         }
     }
     public var option: DataBaseColumnOptions {
@@ -1510,8 +1526,8 @@ public enum SQLiteMaster:String, DBTableType {
     
     public var type: DataBaseColumnType {
         switch self {
-        case .rootpage: return .Integer
-        default : return .Text
+        case .rootpage: return .integer
+        default : return .text
         }
     }
     public var option: DataBaseColumnOptions {
