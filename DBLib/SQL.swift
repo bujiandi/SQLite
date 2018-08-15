@@ -33,6 +33,11 @@ extension DBTableType {
         var i = 0
         return AnyIterator {
             let next = withUnsafePointer(to: &i) {
+//                (body) in
+//                return body.withMemoryRebound(to: UnsafePointer<T>.self, capacity: 1, {
+//                    (point:UnsafePointer<T>) in
+//                    return point
+//                })
                 unsafeBitCast($0, to: UnsafePointer<T>.self).pointee
             }
             defer { i += 1 }
@@ -53,7 +58,7 @@ public struct DataBaseColumnOptions : OptionSet, CustomStringConvertible {
     public static let None                 = DataBaseColumnOptions(rawValue: 0)
     public static let PrimaryKey           = DataBaseColumnOptions(rawValue: 1 << 0)
     public static let Autoincrement        = DataBaseColumnOptions(rawValue: 1 << 1)
-    public static let PrimaryKeyAutoincrement: DataBaseColumnOptions = [PrimaryKey, Autoincrement]
+    public static let PrimaryKeyAutoincrement: DataBaseColumnOptions = [.PrimaryKey, .Autoincrement]
     public static let NotNull              = DataBaseColumnOptions(rawValue: 1 << 2)
     public static let Unique               = DataBaseColumnOptions(rawValue: 1 << 3)
     public static let Check                = DataBaseColumnOptions(rawValue: 1 << 4)
@@ -1252,9 +1257,10 @@ open class SQLInsert<T:DBTableType>: DBSQLHandleType {
             flag = sqlite3_step(stmt)
             if flag != SQLITE_OK && flag != SQLITE_DONE {
                 #if DEBUG
-                    fatalError("无法绑定数据[\(dict)] 到[\(columnFields)]")
+                    fatalError("无法绑定数据[\(value)] 到[\(columns)]")
+                #else
+                    bindSet.bindClear()     //如果失败则绑定下一组
                 #endif
-                bindSet.bindClear()     //如果失败则绑定下一组
             } else {
                 sqlite3_reset(stmt)
                 if lastInsertID == db.lastInsertRowID {
